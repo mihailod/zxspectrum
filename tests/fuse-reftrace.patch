@@ -1,0 +1,112 @@
+--- a/spectrum.c	2026-10-02 20:22:32
++++ b/spectrum.c	2026-10-02 20:22:32
+@@ -95,6 +95,7 @@
+   rzx_frame();
+   psg_frame();
+   spectrum_frame();
++  { extern void reftrace_frame( void ); reftrace_frame(); }
+   z80_interrupt();
+   ui_joystick_poll();
+   timer_estimate_speed();
+--- a/peripherals/ula.c	2026-10-02 20:22:32
++++ b/peripherals/ula.c	2026-10-02 20:22:32
+@@ -199,6 +199,7 @@
+ ula_write( libspectrum_word port GCC_UNUSED, libspectrum_byte b )
+ {
+   last_byte = b;
++  { extern void reftrace_port( libspectrum_dword, libspectrum_byte ); reftrace_port( tstates, b ); }
+ 
+   display_set_lores_border( b & 0x07 );
+   sound_beeper( tstates,
+--- a/ui/null/null_ui.c	2026-10-02 20:22:32
++++ b/ui/null/null_ui.c	2026-10-02 20:22:32
+@@ -25,7 +25,77 @@
+ 
+ #include "keyboard.h"
+ #include "ui/ui.h"
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include "keyboard.h"
++#include "memory_pages.h"
++#include "z80/z80.h"
++#include "z80/z80_macros.h"
+ 
++/* ---- reference trace instrumentation (zx-bruce lockstep comparison) ---- */
++static unsigned char ref_screen[ 240 ][ 320 ];
++static unsigned ref_port_hash = 2166136261u, ref_port_count = 0;
++static long ref_frame = 0;
++static FILE *ref_out = NULL;
++static unsigned
++fnv( unsigned h, unsigned v ) { h ^= v & 0xff; return h * 16777619u; }
++void
++reftrace_port( libspectrum_dword t, libspectrum_byte b )
++{
++  ref_port_hash = fnv( ref_port_hash, t ); ref_port_hash = fnv( ref_port_hash, t >> 8 );
++  ref_port_hash = fnv( ref_port_hash, t >> 16 ); ref_port_hash = fnv( ref_port_hash, b );
++  ref_port_count++;
++}
++static const unsigned ref_pal[16] = {
++  0x000000, 0x0000c0, 0xc00000, 0xc000c0, 0x00c000, 0x00c0c0, 0xc0c000, 0xc0c0c0,
++  0x000000, 0x0000ff, 0xff0000, 0xff00ff, 0x00ff00, 0x00ffff, 0xffff00, 0xffffff };
++static int
++ref_key( const char *n )
++{
++  if( !strcmp( n, "space" ) ) return KEYBOARD_space;
++  if( !strcmp( n, "enter" ) ) return KEYBOARD_Enter;
++  if( strlen( n ) == 1 && n[0] >= 'a' && n[0] <= 'z' ) return KEYBOARD_a + ( n[0] - 'a' );
++  if( strlen( n ) == 1 && n[0] >= '0' && n[0] <= '9' ) return KEYBOARD_0 + ( n[0] - '0' );
++  return -1;
++}
++void
++reftrace_frame( void )
++{
++  unsigned rh = 2166136261u, sh = 2166136261u;
++  int a, x, y;
++  const char *keys = getenv( "REFKEYS" ), *lim = getenv( "REFFRAMES" );
++  if( !ref_out ) ref_out = fopen( getenv( "REFOUT" ) ? getenv( "REFOUT" ) : "ref.trace", "w" );
++  ref_frame++;
++  for( a = 0x4000; a < 0x10000; a++ ) rh = fnv( rh, readbyte_internal( a ) );
++  for( y = 8; y < 232; y++ ) for( x = 16; x < 304; x++ ) {
++    unsigned c = ref_pal[ ref_screen[ y ][ x ] ];
++    sh = fnv( sh, c ); sh = fnv( sh, c >> 8 ); sh = fnv( sh, c >> 16 );
++  }
++  fprintf( ref_out, "%ld %u %04x %04x %04x %04x %04x %04x %04x %04x %04x %04x %04x %04x %04x %02x%02x %d %d %d %d %08x %08x %08x %u\n",
++           ref_frame, tstates, PC, SP, AF, BC, DE, HL, AF_, BC_, DE_, HL_, IX, IY, z80.memptr.w,
++           I, ( R7 & 0x80 ) | ( R & 0x7f ), IFF1, IFF2, IM, z80.halted, rh, sh, ref_port_hash, ref_port_count );
++  ref_port_hash = 2166136261u; ref_port_count = 0;
++  if( getenv( "REFSCREEN" ) && atol( getenv( "REFSCREEN" ) ) == ref_frame ) {
++    FILE *f = fopen( "ref_screen.raw", "wb" );
++    for( y = 8; y < 232; y++ ) fwrite( &ref_screen[ y ][ 16 ], 1, 288, f );
++    fclose( f );
++  }
++  /* key script: "frame:key:dur,..." applied for the frame about to run */
++  if( keys ) {
++    char buf[ 4096 ], *tok, *save = NULL;
++    strncpy( buf, keys, sizeof( buf ) - 1 ); buf[ sizeof( buf ) - 1 ] = 0;
++    for( tok = strtok_r( buf, ",", &save ); tok; tok = strtok_r( NULL, ",", &save ) ) {
++      long fr; char name[ 16 ]; long dur; int k;
++      if( sscanf( tok, "%ld:%15[^:]:%ld", &fr, name, &dur ) != 3 ) continue;
++      k = ref_key( name ); if( k < 0 ) continue;
++      if( ref_frame == fr ) keyboard_press( k );
++      if( ref_frame == fr + dur ) keyboard_release( k );
++    }
++  }
++  if( lim && ref_frame >= atol( lim ) ) { fclose( ref_out ); exit( 0 ); }
++}
++
+ #include "../uijoystick.c"
+ 
+ keysyms_map_t keysyms_map[] = {
+@@ -249,7 +319,10 @@
+ uidisplay_plot8( int x, int y, libspectrum_byte data,
+     libspectrum_byte ink, libspectrum_byte paper )
+ {
+-  /* Do nothing */
++  int k;
++  if( x < 0 || x >= 40 || y < 0 || y >= 240 ) return;
++  for( k = 0; k < 8; k++ )
++    ref_screen[ y ][ x * 8 + k ] = ( data & ( 0x80 >> k ) ) ? ink : paper;
+ }
+ 
+ void

@@ -1,0 +1,808 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>ZX Spectrum</title>
+<style>
+  :root { --bg: #111; --fg: #ccc; --dim: #777; --panel: #1c1c1c; --line: #333; --hot: #3a3a3a; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--fg);
+    font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  body { display: flex; flex-direction: column; align-items: center; gap: 12px;
+    padding: max(12px, env(safe-area-inset-top)) 16px max(12px, env(safe-area-inset-bottom)); }
+  #screen { display: block; image-rendering: crisp-edges; image-rendering: pixelated;
+    background: #000; max-width: 100%; height: auto; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: center; }
+  select, button { font: inherit; color: var(--fg); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 4px; padding: 3px 8px; cursor: pointer; }
+  button:hover, select:hover { border-color: var(--dim); }
+  label { color: var(--dim); }
+
+  /* game picker: type to search, or open the whole list */
+  .field { display: inline-flex; align-items: center; gap: 6px; }
+  .combo { position: relative; display: inline-flex; }
+  #game-search { font: inherit; color: var(--fg); background: var(--panel); width: 30ch; max-width: 58vw;
+    border: 1px solid var(--line); border-right: 0; border-radius: 4px 0 0 4px; padding: 3px 8px; }
+  body.touch #game-search { font-size: 16px; }   /* smaller text makes iOS zoom in on focus */
+  #game-search::placeholder { color: var(--dim); }
+  #game-search:focus { outline: none; border-color: var(--dim); }
+  #game-open { border-radius: 0 4px 4px 0; padding: 3px 7px; }
+  #game-list { position: absolute; scroll-padding: 4px 0; top: 100%; left: 0; z-index: 10; margin: 2px 0 0; padding: 4px 0;
+    list-style: none; min-width: 100%; max-width: min(90vw, 440px); max-height: min(60vh, 380px);
+    overflow-y: auto; background: var(--panel); border: 1px solid var(--dim); border-radius: 4px;
+    box-shadow: 0 6px 18px #000a; }
+  #game-list li { padding: 4px 10px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  body.touch #game-list li { padding: 10px 12px; }
+  #game-list li.current { color: #fff; }
+  #game-list li.current::after { content: ' ●'; color: var(--dim); font-size: 9px; vertical-align: middle; }
+  #game-list li.active { background: var(--hot); }
+  #game-list li.empty { color: var(--dim); cursor: default; }
+  #game-list li.group { color: var(--dim); cursor: default; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+    margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--line); }
+  #game-list mark { background: none; color: #fff; font-weight: 700; text-decoration: underline; }
+  .help { color: var(--dim); max-width: 620px; text-align: center; }
+  kbd { color: var(--fg); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
+  #status { color: var(--dim); min-width: 9ch; }
+
+  /* touch keys */
+  #pad { display: none; width: 100%; max-width: 560px; touch-action: none;
+    user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+  body.touch #pad { display: grid; gap: 10px; }
+  #pad.dense { gap: 5px; max-width: 720px; }
+  .key { display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 64px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel);
+    color: var(--fg); font-size: 22px; font-weight: 600; }
+  .key small { font-size: 10px; font-weight: 400; color: var(--dim); margin-top: 2px; }
+  .key.on, .key.latched { background: var(--hot); border-color: var(--dim); }
+  #pad.dense .key { min-height: 46px; font-size: 16px; border-radius: 6px; }
+  #pad.dense .key.small-label { font-size: 10px; }
+  body.touch .desktop-only { display: none; }
+  body:not(.touch) .touch-only { display: none; }
+
+  /* intro: every game's screen flying past like stars */
+  #intro { position: fixed; inset: 0; z-index: 50; background: #000; overflow: hidden;
+    transition: opacity .45s ease; touch-action: manipulation; }
+  #intro[hidden] { display: none; }
+  #intro.closing { opacity: 0; pointer-events: none; }
+  #intro canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #intro::after { content: ''; position: absolute; inset: 0; pointer-events: none;   /* CRT scanlines + vignette */
+    background: repeating-linear-gradient(to bottom, transparent 0 2px, rgba(0, 0, 0, .22) 2px 3px),
+      radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, .55) 100%); }
+  #intro-skip { position: absolute; left: 50%; transform: translateX(-50%); bottom: 0; z-index: 1;
+    background: none; border: 0; padding: 0; opacity: 0; cursor: pointer; }
+</style>
+</head>
+<body>
+<div id="intro" hidden><canvas id="intro-canvas" aria-label="All games: click one to play"></canvas>
+  <button id="intro-skip" type="button">Skip to the emulator</button></div>
+<canvas id="screen"></canvas>
+<div class="bar">
+  <button id="gallery" title="All the games">Gallery</button>
+  <span class="field"><label for="game-search">Program</label>
+    <span class="combo">
+      <input id="game-search" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false"
+        aria-controls="game-list" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
+        enterkeyhint="go" placeholder="Type to search">
+      <button id="game-open" type="button" tabindex="-1" aria-label="Show all games">▾</button>
+      <ul id="game-list" role="listbox" aria-label="Programs" hidden></ul>
+    </span></span>
+  <label>Scale <select id="scale">
+    <option value="fit">Fit</option>
+    <option value="1">1×</option><option value="2">2×</option>
+    <option value="3">3×</option><option value="4">4×</option>
+  </select></label>
+  <button id="sound">Sound: on</button>
+  <button id="reset">Reset</button>
+  <span id="status"></span>
+</div>
+<div id="pad"></div>
+<div class="help">
+  <span class="desktop-only">Your keyboard works as the Spectrum keyboard: </span><span
+    class="touch-only">Spectrum keys: </span><span id="keys-help"></span>
+  <span class="desktop-only"><kbd>Shift</kbd> is CAPS SHIFT, <kbd>Control</kbd> or <kbd>Option</kbd> is SYMBOL SHIFT.</span><br>
+  <span id="flow-help"></span> <span class="touch-only" id="touch-help"></span>
+</div>
+<script>
+'use strict';
+function createSpectrum48(rom) {
+/*MACHINE*/
+}
+
+const b64 = s => Uint8Array.from(atob(s), ch => ch.charCodeAt(0));
+const ROM = b64('/*ROM*/');
+// Menu entries: snapshot (base64, or null = power on into BASIC), help texts, touch keys
+const GAMES = /*GAMES*/;
+
+const zx = createSpectrum48(ROM);
+const isGame = g => g.id !== 'basic' && !g.utility && !g.partOf;   // BASIC, utilities and later parts of a game are not games
+const GAME_COUNT = GAMES.filter(isGame).length;
+
+const isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0 ||
+  (window.matchMedia && matchMedia('(pointer: coarse)').matches);
+if (isTouch) document.body.classList.add('touch');
+
+// ---- video ----
+const canvas = document.getElementById('screen');
+canvas.width = zx.W; canvas.height = zx.H;
+const ctx2d = canvas.getContext('2d');
+const img = new ImageData(new Uint8ClampedArray(zx.pixels.buffer), zx.W, zx.H);
+const draw = () => ctx2d.putImageData(img, 0, 0);
+const scaleSel = document.getElementById('scale');
+let scale = isTouch ? 'fit' : '2';
+try { scale = localStorage.getItem('zxScale') || scale; } catch (e) {}
+function applyScale() {
+  let px;
+  if (scale === 'fit') {
+    const padH = isTouch ? 330 : 140;          // room for the bar, keys and help
+    const s = Math.min((window.innerWidth - 32) / zx.W, Math.max(1, window.innerHeight - padH) / zx.H);
+    px = Math.max(zx.W, Math.floor(zx.W * s));
+    if (isTouch) px = Math.min(Math.floor(window.innerWidth - 32), Math.max(px, 0));
+  } else px = zx.W * +scale;
+  canvas.style.width = px + 'px';
+}
+scaleSel.value = scale; applyScale();
+scaleSel.addEventListener('change', () => {
+  scale = scaleSel.value;
+  try { localStorage.setItem('zxScale', scale); } catch (e) {}
+  applyScale(); scaleSel.blur();
+});
+window.addEventListener('resize', applyScale);
+
+// ---- audio ----
+// Each emulated frame's samples are scheduled as a buffer on the audio clock,
+// a little ahead of playback. No worklet module is needed, so this also works
+// when the page is opened straight from disk.
+const FPS = 3500000 / 69888, LEAD = 0.09, VOLUME = 0.35;
+let actx = null, gain = null, nextTime = 0, wantSound = true, dcX = 0, dcY = 0;
+const soundBtn = document.getElementById('sound');
+function audioRunning() { return wantSound && actx && actx.state === 'running'; }
+function updateSoundBtn() { soundBtn.textContent = 'Sound: ' + (audioRunning() ? 'on' : wantSound ? 'tap to start' : 'off'); }
+// Must be called from inside a user gesture (key, click, touch) to unlock audio.
+function ensureAudio() {
+  if (!wantSound) return;
+  if (!actx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
+    try { actx = new AC({ latencyHint: 'interactive' }); } catch (e) { actx = new AC(); }
+    gain = actx.createGain(); gain.gain.value = VOLUME; gain.connect(actx.destination);
+    zx.setSampleRate(actx.sampleRate);
+    actx.onstatechange = updateSoundBtn;
+    // a one-sample silent buffer started inside the gesture unlocks iOS audio
+    const s = actx.createBufferSource(); s.buffer = actx.createBuffer(1, 1, actx.sampleRate);
+    s.connect(actx.destination); s.start(0);
+  }
+  if (actx.state !== 'running') actx.resume().then(updateSoundBtn, () => {});
+  updateSoundBtn();
+}
+function queueAudio(samples) {
+  if (!audioRunning() || !samples.length) return;
+  const sr = actx.sampleRate, now = actx.currentTime;
+  if (nextTime < now + 0.005) nextTime = now + 0.03;        // first buffer or underrun
+  const buf = actx.createBuffer(1, samples.length, sr);
+  const ch = buf.getChannelData(0);
+  for (let k = 0; k < samples.length; k++) {               // speaker is AC coupled
+    const x = samples[k];
+    dcY = x - dcX + 0.995 * dcY; dcX = x;
+    ch[k] = dcY;
+  }
+  const src = actx.createBufferSource();
+  src.buffer = buf; src.connect(gain); src.start(nextTime);
+  nextTime += samples.length / sr;
+}
+soundBtn.addEventListener('click', () => {
+  if (audioRunning()) { wantSound = false; actx.suspend(); }
+  else { wantSound = true; ensureAudio(); }
+  updateSoundBtn(); soundBtn.blur();
+});
+updateSoundBtn();
+
+// ---- main loop ----
+// With sound running, frames are produced to keep LEAD seconds of audio
+// queued (the audio clock sets the speed). Otherwise wall-clock time does.
+let frameNo = 0, last = performance.now(), acc = 0, fpsFrames = 0, fpsT = last;
+const statusEl = document.getElementById('status');
+function runOneFrame() {
+  queueAudio(zx.runFrame());
+  laterTapeCheck();
+  frameNo++; fpsFrames++;
+  releaseDue();
+}
+// a game that loads more from tape later (see tapeLater in games.mjs): its tape goes in when the game's
+// loader starts, as if PLAY were pressed then, and the machine runs fast while it plays
+let laterPending = false;
+let laterIn = false;
+function laterTapeCheck() {
+  if (laterPending && zx.brokeAtBreak()) { laterPending = false; laterIn = true; zx.loadTape(game.laterBytes); }
+  else if (laterIn && game.laterRewind && zx.tapeState().ended) zx.loadTape(game.laterBytes);   // rewound
+}
+const FAST = 40;                                   // frames per animation frame while a tape plays
+// ---- loading screens ----
+// loader = null (normal running) or
+//   { phase: 'hold' }     machine paused on its loading screen until a key
+//   { phase: 'screen' }   a .scr loading screen on a halted machine (FLASH runs) until a key
+let loader = null, introOpen = false;
+function finishLoading() {
+  const wasScreen = loader && loader.phase === 'screen';
+  loader = null;
+  if (wasScreen) {
+    loadGame();                                     // the game "finishes loading" now
+    if (game.holdBoot && game.bytes) { loader = { phase: 'hold' }; zx.redraw(); }   // then holds its first screen too
+  }
+  showStatus();
+}
+function showStatus() {
+  statusEl.textContent = loader ? 'loaded — press any key' : '';
+}
+
+function tick(now) {
+  let ran = 0;
+  if ((loader && loader.phase === 'hold') || introOpen) {     // paused (the intro pauses the machine too)
+    last = now; acc = 0;
+    requestAnimationFrame(tick);
+    return;
+  }
+  if (!document.hidden && zx.tapeState().playing) {          // loading: no sound, many frames at a time
+    while (ran < FAST && zx.tapeState().playing) { zx.runFrame(); laterTapeCheck(); frameNo++; fpsFrames++; releaseDue(); ran++; }
+    acc = 0;
+  } else if (!document.hidden) {
+    if (audioRunning()) {
+      // a stale nextTime (start, underrun, resume) is resynced in queueAudio
+      while (nextTime - actx.currentTime < LEAD && ran < 8) { runOneFrame(); ran++; }
+      acc = 0;
+    } else {
+      acc += (now - last) / 1000 * FPS;
+      if (acc > 4) acc = 4;
+      while (acc >= 1) { runOneFrame(); acc -= 1; ran++; }
+    }
+  }
+  last = now;
+  if (ran) draw();
+  if (now - fpsT >= 1000) {
+    if (!loader) statusEl.textContent = (fpsFrames * 1000 / (now - fpsT)).toFixed(1) + ' fps';
+    fpsFrames = 0; fpsT = now;
+  }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+// ---- input: keyboard and touch keys -> Spectrum matrix (half-row, bit) ----
+const KM = {
+  ShiftLeft: [[0, 0]], ShiftRight: [[0, 0]], KeyZ: [[0, 1]], KeyX: [[0, 2]], KeyC: [[0, 3]], KeyV: [[0, 4]],
+  KeyA: [[1, 0]], KeyS: [[1, 1]], KeyD: [[1, 2]], KeyF: [[1, 3]], KeyG: [[1, 4]],
+  KeyQ: [[2, 0]], KeyW: [[2, 1]], KeyE: [[2, 2]], KeyR: [[2, 3]], KeyT: [[2, 4]],
+  Digit1: [[3, 0]], Digit2: [[3, 1]], Digit3: [[3, 2]], Digit4: [[3, 3]], Digit5: [[3, 4]],
+  Digit0: [[4, 0]], Digit9: [[4, 1]], Digit8: [[4, 2]], Digit7: [[4, 3]], Digit6: [[4, 4]],
+  KeyP: [[5, 0]], KeyO: [[5, 1]], KeyI: [[5, 2]], KeyU: [[5, 3]], KeyY: [[5, 4]],
+  Enter: [[6, 0]], NumpadEnter: [[6, 0]], KeyL: [[6, 1]], KeyK: [[6, 2]], KeyJ: [[6, 3]], KeyH: [[6, 4]],
+  Space: [[7, 0]], ControlLeft: [[7, 1]], ControlRight: [[7, 1]], AltLeft: [[7, 1]], AltRight: [[7, 1]],
+  KeyM: [[7, 2]], KeyN: [[7, 3]], KeyB: [[7, 4]],
+  Backspace: [[0, 0], [4, 0]],
+};
+// A tap shorter than its minimum hold (in emulated frames) is stretched so the
+// game's keyboard scan cannot miss it. Some screens only poll the keyboard
+// between music notes, so games list longer holds for those keys (games.mjs).
+const MIN_HOLD = 4;
+let gameHolds = {};                                       // per game: { "row,bit": frames }
+const minHold = pos => Math.max(MIN_HOLD, gameHolds['*'] || 0, ...pos.map(p => gameHolds[p.join(',')] || 0));
+const held = new Map();   // id -> { pos, since, up }
+function applyKeys() {
+  zx.releaseAll();
+  for (const k of held.values()) for (const [row, bit] of k.pos) zx.key(row, bit, true);
+}
+function press(id, pos) {
+  const k = held.get(id);
+  if (k && !k.up) return;
+  held.set(id, { pos, since: frameNo, up: false }); applyKeys();
+}
+function release(id) {
+  const k = held.get(id);
+  if (k) { k.up = true; releaseDue(); }
+}
+function releaseDue() {
+  let changed = false;
+  for (const [id, k] of held) if (k.up && frameNo - k.since >= minHold(k.pos)) { held.delete(id); changed = true; }
+  if (changed) applyKeys();
+}
+// On a held loading screen any key continues (and is not passed to the game).
+function loaderKey() {
+  if (!loader) return false;
+  finishLoading(); draw();
+  return true;
+}
+window.addEventListener('keydown', e => {
+  ensureAudio();
+  if (introOpen) {                                  // any key leaves the intro for the emulator
+    if (e.metaKey || /^(Shift|Control|Alt|Meta|Tab)/.test(e.code)) return;
+    e.preventDefault(); if (!e.repeat) closeIntro(); return;
+  }
+  if (e.target === search) return;                  // typing a game name, not Spectrum keys
+  const m = KM[e.code];
+  if (e.metaKey) return;
+  if (loader && !/^(Shift|Control|Alt|Meta)/.test(e.code)) { e.preventDefault(); if (!e.repeat) loaderKey(); return; }
+  if (!m) return;
+  e.preventDefault();
+  if (!e.repeat) press(e.code, m);
+});
+window.addEventListener('keyup', e => {
+  if (e.target === search || !KM[e.code]) return;
+  e.preventDefault();
+  release(e.code);
+});
+window.addEventListener('blur', () => { held.clear(); if (!loader) applyKeys(); });
+canvas.addEventListener('pointerdown', () => { ensureAudio(); loaderKey(); });
+canvas.addEventListener('click', ensureAudio);
+
+// Touch keys: each finger presses the key under it and can slide between keys.
+const pad = document.getElementById('pad');
+const fingers = new Map();  // pointerId -> key element under it (or null)
+const keyPos = el => el.dataset.keys.split(';').map(s => s.split(',').map(Number));
+// Sticky keys (CAPS/SYM on the full keyboard) toggle on tap and stay down
+// until the next ordinary key has been pressed and released.
+function setLatched(el, on, since) {
+  const id = 'latch:' + el.dataset.keys;
+  el.classList.toggle('latched', on);
+  if (on) { press(id, keyPos(el)); return; }
+  // keep the modifier down at least as long as the key it modifies
+  const k = held.get(id);
+  if (k && since !== undefined) k.since = Math.max(k.since, since);
+  release(id);
+}
+function fingerOn(id, el) {
+  const prev = fingers.get(id) || null;
+  if (prev === el) return;
+  if (prev && !prev.dataset.sticky) {
+    const kid = 'touch' + id + ':' + prev.dataset.keys, k = held.get(kid);
+    const since = k ? k.since + minHold(k.pos) - MIN_HOLD : undefined;
+    release(kid); prev.classList.remove('on');
+    for (const s of pad.querySelectorAll('.key.latched')) setLatched(s, false, since);
+  }
+  if (el && el.dataset.sticky) setLatched(el, !el.classList.contains('latched'));
+  else if (el) { press('touch' + id + ':' + el.dataset.keys, keyPos(el)); el.classList.add('on'); }
+  fingers.set(id, el);
+}
+function buildPad(spec) {
+  pad.textContent = '';
+  pad.className = spec.columns > 6 ? 'dense' : '';
+  pad.style.gridTemplateColumns = `repeat(${spec.columns}, 1fr)`;
+  pad.style.gridTemplateAreas = spec.areas.map(r => `"${r}"`).join(' ');
+  for (const k of spec.keys) {
+    const el = document.createElement('div');
+    el.className = 'key' + (k.small ? ' small-label' : '');
+    el.style.gridArea = k.area;
+    el.dataset.keys = k.keys.map(p => p.join(',')).join(';');
+    if (k.sticky) el.dataset.sticky = '1';
+    el.textContent = k.label;
+    if (k.sub) { const sm = document.createElement('small'); sm.textContent = k.sub; el.appendChild(sm); }
+    pad.appendChild(el);
+  }
+}
+const keyAt = (x, y) => { const el = document.elementFromPoint(x, y); return el && el.closest ? el.closest('#pad .key') : null; };
+pad.addEventListener('pointerdown', e => {
+  e.preventDefault(); ensureAudio();
+  if (loaderKey()) return;
+  try { pad.setPointerCapture(e.pointerId); } catch (err) {}
+  fingerOn(e.pointerId, keyAt(e.clientX, e.clientY));
+});
+pad.addEventListener('pointermove', e => { if (fingers.has(e.pointerId)) fingerOn(e.pointerId, keyAt(e.clientX, e.clientY)); });
+const lift = e => { ensureAudio(); fingerOn(e.pointerId, null); fingers.delete(e.pointerId); };
+pad.addEventListener('pointerup', lift);
+pad.addEventListener('pointercancel', lift);
+pad.addEventListener('touchend', ensureAudio);       // iOS unlocks audio on touchend
+pad.addEventListener('contextmenu', e => e.preventDefault());
+
+// ---- game menu ----
+for (const g of GAMES) {
+  if (g.snap) g.bytes = b64(g.snap);
+  if (g.state) g.state.ram = b64(g.state.ram);
+  if (g.screen) g.screenBytes = b64(g.screen);
+  if (g.later) g.laterBytes = b64(g.later);
+}
+let game = null;
+function loadSnapshot() {
+  zx.loadZ80(game.bytes);
+  if (game.start) zx.enter(game.start);             // from the game's entry point (see games.mjs)
+  for (const a in game.pokes || {}) zx.mem[a] = game.pokes[a];   // undo what the snapshot had changed (see games.mjs)
+  if (game.basicLine) {                             // run its BASIC program from this line (see games.mjs)
+    const m = zx.mem;
+    m[23618] = game.basicLine & 255; m[23619] = game.basicLine >> 8; m[23620] = 0;   // NEWPPC, NSPPC
+    zx.enter({ pc: 0x1b76, sp: m[23613] | m[23614] << 8 });                          // STMT-RET, ERR_SP
+  }
+  if (game.kempston !== undefined) zx.attachKempston(game.kempston);   // the interface the game expects (or none)
+  if (game.issue2) zx.setIssue2(true);              // an Issue 2 board's EAR bit (see games.mjs)
+}
+// a snapshot, or a tape loaded by the build up to its end
+function loadGame() {
+  if (game.bytes) loadSnapshot(); else loadTapeState();
+}
+function loadTapeState() {
+  zx.loadState(game.state);
+  if (game.kempston !== undefined) zx.attachKempston(game.kempston);
+  if (game.laterBytes) { zx.setBreakAt(game.laterAt); laterPending = true; }
+}
+function boot(id) {
+  game = GAMES.find(g => g.id === id) || GAMES[0];
+  loader = null;
+  zx.setBreakAt(null); zx.loadTape(null); laterPending = false; laterIn = false;
+  if (game.screenBytes) {                          // loading screen first, the game after a key
+    zx.showScreen(game.screenBytes);
+    loader = { phase: 'screen' };
+  } else if (game.bytes) {
+    loadSnapshot();
+    if (game.holdBoot) loader = { phase: 'hold' };
+  } else if (game.state) {                         // a tape, loaded by the build up to its end
+    loadTapeState();
+    loader = { phase: 'hold' };
+  } else zx.reset();
+  if (loader) zx.redraw();
+  gameHolds = game.holds || {};
+  fingers.clear(); held.clear(); applyKeys(); draw();
+  if (document.activeElement !== search) search.value = game.name;
+  document.title = /ZX Spectrum/.test(game.name) ? game.name : game.name + ' — ZX Spectrum';
+  document.getElementById('keys-help').innerHTML = game.keysHelp;
+  document.getElementById('flow-help').textContent = game.flowHelp;
+  document.getElementById('touch-help').textContent = game.touchHelp || '';
+  buildPad(game.pad);
+  showStatus();
+  try { localStorage.setItem('zxGame', game.id); } catch (e) {}
+  try { if (location.hash.slice(1) !== game.id) history.replaceState(null, '', '#' + game.id); } catch (e) {}
+}
+
+// ---- game picker: a search box over the game list ----
+// Focusing it (or ▾) lists every game; typing narrows the list as you go.
+// Arrow keys move, Enter or a click/tap boots, Escape leaves it as it was.
+const search = document.getElementById('game-search');
+const list = document.getElementById('game-list');
+const openBtn = document.getElementById('game-open');
+// names compared in lower case with accents, punctuation and spacing ignored
+const fold = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+for (const g of GAMES) {
+  g.flat = ''; g.pos = []; g.starts = new Set();      // letters/digits only, their places in the name, word starts
+  const n = fold(g.name);
+  for (let i = 0, prevAl = false; i < n.length; i++) {
+    const al = /[a-z0-9]/.test(n[i]);
+    if (al) { if (!prevAl) g.starts.add(g.flat.length); g.flat += n[i]; g.pos.push(i); }
+    prevAl = al;
+  }
+}
+// Matches, best first: the name starts with what was typed (spaces and
+// punctuation ignored), then every typed word starts a word of the name, then
+// every typed word appears somewhere in it (only words of 3 or more letters
+// match mid-word, so one letter doesn't pull in everything); menu order
+// within each group.
+// Each result carries the name positions to highlight.
+function findGames(query) {
+  const words = fold(query).split(/[^a-z0-9]+/).filter(Boolean);
+  if (!words.length) return GAMES.map(g => ({ g, hl: new Set() }));
+  const out = [];
+  for (const g of GAMES) {
+    const hl = new Set(), flatQ = words.join('');
+    let rank = 0;
+    if (g.flat.startsWith(flatQ)) for (let k = 0; k < flatQ.length; k++) hl.add(g.pos[k]);
+    else {
+      rank = 1;
+      for (const w of words) {
+        let at = -1;
+        for (let i = g.flat.indexOf(w); i >= 0; i = g.flat.indexOf(w, i + 1)) if (g.starts.has(i)) { at = i; break; }
+        if (at < 0 && w.length >= 3) { at = g.flat.indexOf(w); rank = 2; }
+        if (at < 0) { rank = -1; break; }
+        for (let k = 0; k < w.length; k++) hl.add(g.pos[at + k]);
+      }
+      if (rank < 0) continue;
+    }
+    out.push({ g, hl, rank });
+  }
+  return out.sort((a, b) => a.rank - b.rank);
+}
+let shown = [], active = -1;
+function setActive(i) {
+  const items = list.querySelectorAll('li[role=option]');
+  if (items[active]) items[active].classList.remove('active');
+  active = i;
+  if (items[i]) {
+    items[i].classList.add('active');
+    // scroll the list only (scrollIntoView would also scroll the page)
+    const top = items[i].offsetTop, bottom = top + items[i].offsetHeight;
+    if (top < list.scrollTop) list.scrollTop = top;
+    else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight;
+    search.setAttribute('aria-activedescendant', items[i].id);
+  } else search.removeAttribute('aria-activedescendant');
+}
+function showList(query) {
+  shown = findGames(query);
+  list.textContent = '';
+  const all = shown.length === GAMES.length;       // the whole menu: the games, then a Utilities heading
+  let headed = false;
+  for (const { g, hl } of shown) {
+    if (all && !headed && (g.utility || g.id === 'basic')) {
+      const h = document.createElement('li');
+      h.className = 'group'; h.setAttribute('role', 'presentation'); h.textContent = 'Utilities';
+      list.append(h); headed = true;
+    }
+    const li = document.createElement('li');
+    li.id = 'game-' + g.id; li.setAttribute('role', 'option');
+    if (g === game) li.classList.add('current');
+    // highlighted runs as <mark>, the rest as plain text
+    for (let i = 0; i < g.name.length;) {
+      let j = i;
+      while (j < g.name.length && hl.has(j) === hl.has(i)) j++;
+      const part = g.name.slice(i, j);
+      if (hl.has(i)) { const m = document.createElement('mark'); m.textContent = part; li.append(m); }
+      else li.append(part);
+      i = j;
+    }
+    li.addEventListener('click', () => choose(g));
+    list.append(li);
+  }
+  if (!shown.length) {
+    const li = document.createElement('li');
+    li.className = 'empty'; li.textContent = 'No program matches';
+    list.append(li);
+  }
+  list.hidden = false; search.setAttribute('aria-expanded', 'true');
+  active = -1;
+}
+function hideList() {
+  list.hidden = true; search.setAttribute('aria-expanded', 'false'); setActive(-1);
+}
+function showAll() {
+  showList('');
+  setActive(shown.findIndex(r => r.g === game));
+}
+function choose(g) {
+  hideList(); search.blur(); ensureAudio(); boot(g.id);
+}
+search.addEventListener('focus', () => {
+  held.clear(); applyKeys();                       // Spectrum keys still down are let go
+  search.value = ''; search.placeholder = game.name;
+  showAll();
+});
+search.addEventListener('blur', () => { hideList(); search.value = game.name; search.placeholder = 'Type to search'; });
+search.addEventListener('input', () => { showList(search.value); setActive(shown.length ? 0 : -1); });
+search.addEventListener('keydown', e => {
+  const n = shown.length;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (list.hidden) { showAll(); return; }
+    if (n) setActive(e.key === 'ArrowDown' ? (active + 1) % n : (active - 1 + n) % n);
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (!list.hidden && shown[active]) choose(shown[active].g);
+  } else if (e.key === 'Escape') {
+    e.preventDefault(); search.blur();
+  }
+});
+list.addEventListener('mousedown', e => e.preventDefault());       // keep the focus in the search box
+openBtn.addEventListener('mousedown', e => e.preventDefault());
+openBtn.addEventListener('click', () => {
+  if (document.activeElement !== search) search.focus();
+  else if (list.hidden) showAll();
+  else search.blur();
+});
+window.addEventListener('hashchange', () => { if (location.hash.slice(1) !== game.id) boot(location.hash.slice(1)); });
+const firstVisit = !location.hash;                 // opened without a #game: show the intro
+// the game in the address, else the last one played, else a random game (not BASIC)
+const known = id => GAMES.some(g => g.id === id);
+let startId = location.hash.slice(1);
+if (!known(startId)) { try { startId = localStorage.getItem('zxGame'); } catch (e) {} }
+if (!known(startId)) { const pick = GAMES.filter(isGame); startId = pick[(Math.random() * pick.length) | 0].id; }
+boot(startId);
+
+document.getElementById('reset').addEventListener('click', e => {
+  ensureAudio(); boot(game.id); e.target.blur();
+});
+
+// ---- intro: every game's screen flying out of the dark like a starfield ----
+// Shown when the page is opened without a #game (and from the Gallery button).
+// A click/tap on a screen starts that game; any key or "skip" goes to the
+// emulator. The machine is paused meanwhile. The screens come from the data
+// already in the page: a .scr, a snapshot (read with a second machine) or a
+// tape's saved state; the text uses the Spectrum ROM's own font.
+const introEl = document.getElementById('intro');
+const ic = document.getElementById('intro-canvas'), ix = ic.getContext('2d');
+const skipBtn = document.getElementById('intro-skip');
+const SPEC_RGB = [[0,0,0],[0,0,192],[192,0,0],[192,0,192],[0,192,0],[0,192,192],[192,192,0],[192,192,192],
+                  [0,0,0],[0,0,255],[255,0,0],[255,0,255],[0,255,0],[0,255,255],[255,255,0],[255,255,255]];
+const css = k => `rgb(${SPEC_RGB[k].join(',')})`;
+// a 6912-byte screen as a 256x192 canvas (FLASH shown unflashed)
+function scrCanvas(scr) {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 192;
+  const id = new ImageData(256, 192), d = id.data;
+  for (let y = 0; y < 192; y++) for (let cx = 0; cx < 32; cx++) {
+    const b = scr[((y & 0xc0) << 5) | ((y & 7) << 8) | ((y & 0x38) << 2) | cx], a = scr[6144 + (y >> 3) * 32 + cx];
+    const br = (a & 64) >> 3, ink = SPEC_RGB[(a & 7) | br], paper = SPEC_RGB[((a >> 3) & 7) | br];
+    for (let bit = 0; bit < 8; bit++) {
+      const rgb = b & (128 >> bit) ? ink : paper, o = (y * 256 + cx * 8 + bit) * 4;
+      d[o] = rgb[0]; d[o + 1] = rgb[1]; d[o + 2] = rgb[2]; d[o + 3] = 255;
+    }
+  }
+  c.getContext('2d').putImageData(id, 0, 0);
+  return c;
+}
+// the screen each game opens on, and its border colour
+let thumbs = null;
+function makeThumbs() {
+  const aux = createSpectrum48(ROM);
+  return GAMES.filter(g => !g.partOf).map(g => {
+    let scr, border = 0;
+    if (g.screenBytes) scr = g.screenBytes;
+    else if (g.bytes) { aux.loadZ80(g.bytes); scr = aux.mem.slice(0x4000, 0x5b00); border = aux.saveState().border; }
+    else if (g.state) { scr = g.state.ram.subarray(0, 6912); border = g.state.border; }
+    else { aux.reset(); for (let f = 0; f < 100; f++) aux.runFrame(); scr = aux.mem.slice(0x4000, 0x5b00); border = 7; }
+    return { g, img: scrCanvas(scr), border: border & 7 };
+  });
+}
+// text in the ROM font (characters 32-127 at 3D00), one canvas pixel per Spectrum pixel
+function romText(str, rgb) {
+  const c = document.createElement('canvas'); c.width = Math.max(1, str.length * 8); c.height = 8;
+  const id = new ImageData(c.width, 8), d = id.data;
+  [...str].forEach((ch, n) => {
+    const code = ch === '©' ? 127 : Math.min(127, Math.max(32, ch.charCodeAt(0)));
+    for (let y = 0; y < 8; y++) { const row = ROM[0x3d00 + (code - 32) * 8 + y];
+      for (let x = 0; x < 8; x++) if (row & (128 >> x)) { const o = (y * c.width + n * 8 + x) * 4;
+        d[o] = rgb[0]; d[o + 1] = rgb[1]; d[o + 2] = rgb[2]; d[o + 3] = 255; } }
+  });
+  c.getContext('2d').putImageData(id, 0, 0);
+  return c;
+}
+const ZFAR = 5, ZNEAR = 0.3, SPEED = 0.6, FLYING = 26, DOTS = 260;
+const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+let W = 0, H = 0, DPR = 1, F = 1, flying = [], dots = [], queue = [], hover = null, pointer = null;
+let pace = 1, introLast = 0, introRaf = 0, titleImg = null, countImg = null, hintImg = null, hintRect = null;
+function nextGame() {
+  const busy = new Set(flying.map(f => f.th));
+  for (let tries = 0; tries < 2; tries++) {
+    if (!queue.length) queue = thumbs.map((_, i) => i).sort(() => Math.random() - 0.5);
+    const i = queue.findIndex(k => !busy.has(thumbs[k])); if (i >= 0) return thumbs[queue.splice(i, 1)[0]];
+    queue = [];
+  }
+  return thumbs[(Math.random() * thumbs.length) | 0];
+}
+// somewhere around the edges of the view, away from its centre
+function place(o, spread) {
+  const ang = Math.random() * Math.PI * 2, r = 0.4 + Math.random() * 1.1;
+  o.x = Math.cos(ang) * r * spread * (W / H); o.y = Math.sin(ang) * r * spread;
+}
+function spawn(o, z) { o.z = z; place(o, 1.15); o.th = nextGame(); }
+function introResize() {
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = ic.width = Math.round(innerWidth * DPR); H = ic.height = Math.round(innerHeight * DPR);
+  F = H * 0.62;
+  const lines = isTouch ? ['TAP A SCREENSHOT TO PLAY', 'TAP HERE TO SKIP'] : ['CLICK A SCREENSHOT TO PLAY', 'ANY KEY FOR THE EMULATOR'];
+  // one line, or two on a narrow screen so the text can be drawn larger
+  const parts = innerWidth < 640 ? lines : [lines.join('   ')], hw = Math.max(...parts.map(t => t.length)) * 8;
+  hintImg = document.createElement('canvas'); hintImg.width = hw; hintImg.height = parts.length * 10 - 2;
+  parts.forEach((t, n) => { const c = romText(t, [255, 255, 255]); hintImg.getContext('2d').drawImage(c, (hw - c.width) >> 1, n * 10); });
+  titleImg = romText('ZX SPECTRUM', [255, 255, 255]);
+  countImg = romText(`${GAME_COUNT} GAMES`, [0, 255, 255]);
+}
+function openIntro() {
+  if (!thumbs) thumbs = makeThumbs();
+  held.clear(); applyKeys();
+  introOpen = true; introEl.hidden = false; introEl.classList.remove('closing');
+  introResize();
+  flying = []; queue = [];
+  for (let k = 0; k < FLYING; k++) { const o = {}; spawn(o, ZNEAR + 0.6 + (ZFAR - ZNEAR - 0.6) * (k + Math.random()) / FLYING); flying.push(o); }
+  dots = []; for (let k = 0; k < DOTS; k++) { const o = { z: 0.2 + Math.random() * ZFAR }; place(o, 1.6); dots.push(o); }
+  hover = null; pace = 1; introLast = performance.now();
+  cancelAnimationFrame(introRaf); introRaf = requestAnimationFrame(introFrame);
+}
+function closeIntro(then) {
+  if (!introOpen) return;
+  introOpen = false; hover = null;
+  introEl.classList.add('closing');
+  setTimeout(() => { if (!introOpen) { introEl.hidden = true; cancelAnimationFrame(introRaf); } }, 460);
+  if (then) then();
+  last = performance.now(); acc = 0;
+}
+// where a flying screen is drawn (device pixels), or null when out of view
+function rectOf(o) {
+  const w = 0.34 * F / o.z, h = w * 0.75, cx = W / 2 + o.x / o.z * F, cy = H / 2 + o.y / o.z * F;
+  if (cx + w / 2 < 0 || cx - w / 2 > W || cy + h / 2 < 0 || cy - h / 2 > H) return null;
+  return { x: cx - w / 2, y: cy - h / 2, w, h };
+}
+function hitTest(px, py) {
+  let best = null;
+  for (const o of flying) { const r = rectOf(o);
+    if (r && o.alpha > 0.3 && px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h && (!best || o.z < best.z)) best = o; }
+  return best;
+}
+function introFrame(now) {
+  if (!introOpen && introEl.hidden) return;
+  const dt = Math.min(0.05, (now - introLast) / 1000); introLast = now;
+  if (pointer) hover = hitTest(pointer.x, pointer.y);
+  pace += ((hover ? 0.08 : 1) - pace) * Math.min(1, dt * 6);          // ease down over a screen, back up after
+  const v = SPEED * pace * (reduceMotion ? 0.3 : 1) * dt;
+  ix.fillStyle = '#000'; ix.fillRect(0, 0, W, H);
+  // pixel stars
+  for (const d of dots) {
+    d.z -= v; if (d.z < 0.2) { d.z = ZFAR; place(d, 1.6); }
+    const sx = W / 2 + d.x / d.z * F, sy = H / 2 + d.y / d.z * F;
+    if (sx < 0 || sx > W || sy < 0 || sy > H) { if (d.z < ZFAR - 1) { d.z = ZFAR; place(d, 1.6); } continue; }
+    const b = Math.min(1, (ZFAR - d.z) / ZFAR * 1.4), s = Math.max(1, Math.round(DPR * 2.4 / Math.max(0.6, d.z)));
+    ix.fillStyle = `rgba(${d.z < 1.5 ? '255,255,255' : '205,205,205'},${b})`;
+    ix.fillRect(Math.round(sx), Math.round(sy), s, s);
+  }
+  // the screens, far ones first
+  for (const o of flying) {
+    o.z -= v;
+    const r = o.z > ZNEAR ? rectOf(o) : null;
+    if (!r && o.z < ZFAR - 1 || o.z <= ZNEAR) { if (o === hover) hover = null; spawn(o, ZFAR + Math.random() * 0.4); }
+  }
+  flying.sort((a, b) => b.z - a.z);
+  ix.imageSmoothingEnabled = true; ix.imageSmoothingQuality = 'medium';
+  for (const o of flying) {
+    const r = rectOf(o); o.alpha = 0; if (!r) continue;
+    const fadeIn = Math.min(1, (ZFAR - o.z) / 1.2), fog = 0.5 + 0.5 * Math.min(1, (ZFAR - o.z) / (ZFAR - 1.2));
+    const big = Math.max(0, Math.min(1, (r.w / Math.min(W, H) - 0.5) / 0.2));    // fade the very nearest out
+    o.alpha = fadeIn * (1 - big);
+    if (o.alpha <= 0) continue;
+    ix.globalAlpha = o.alpha * fog;
+    const b = Math.max(1, r.w * 0.045);                                    // the Spectrum's border round each screen
+    ix.fillStyle = o.th.border ? css(o.th.border) : '#262626';
+    ix.fillRect(r.x - b, r.y - b, r.w + 2 * b, r.h + 2 * b);
+    ix.drawImage(o.th.img, r.x, r.y, r.w, r.h);
+    if (o === hover) {
+      ix.globalAlpha = 1;
+      const on = Math.floor(now / 320) % 2;                                // FLASH rate
+      ix.strokeStyle = on ? '#fff' : '#ff0'; ix.lineWidth = Math.max(2, 2 * DPR);
+      ix.strokeRect(r.x - b - ix.lineWidth, r.y - b - ix.lineWidth, r.w + 2 * (b + ix.lineWidth), r.h + 2 * (b + ix.lineWidth));
+    }
+  }
+  ix.globalAlpha = 1;
+  ix.imageSmoothingEnabled = false;
+  // name of the screen under the pointer, as INK 7 on PAPER 0 text
+  if (hover) {
+    const r = rectOf(hover);
+    if (r) {
+      const t = hover.th.label || (hover.th.label = romText(hover.th.g.name, [255, 255, 255]));
+      const s = Math.max(1, Math.round(2 * DPR)), tw = t.width * s, th = 8 * s, pad = 4 * s;
+      let x = r.x + r.w / 2 - tw / 2, y = r.y + r.h + r.w * 0.045 + 6 * DPR;
+      if (y + th + pad > H) y = r.y - r.w * 0.045 - th - 6 * DPR - pad;
+      x = Math.max(pad, Math.min(W - tw - pad, x));
+      ix.fillStyle = '#000'; ix.fillRect(x - pad, y - pad / 2, tw + 2 * pad, th + pad);
+      ix.drawImage(t, Math.round(x), Math.round(y), tw, th);
+    }
+  }
+  // title with the rainbow stripes, and the flashing hint
+  const ts = Math.max(2, Math.min(Math.floor(W * 0.55 / titleImg.width), Math.round(5 * DPR)));
+  const tw = titleImg.width * ts, th = 8 * ts, sw = th * 0.55, gap = th * 0.6;
+  const tx = Math.round((W - tw - gap - 4 * sw) / 2), ty = Math.round(Math.max(18 * DPR, H * 0.05));
+  const cs = Math.max(1, Math.round(ts / 2)), cw = countImg.width * cs, ch = 8 * cs, cy = ty + th + Math.round(th * 0.45);
+  ix.fillStyle = 'rgba(0,0,0,.75)'; ix.fillRect(tx - th * 0.5, ty - th * 0.35, tw + gap + 4 * sw + th, cy + ch + th * 0.35 - (ty - th * 0.35));
+  ix.drawImage(titleImg, tx, ty, tw, th);
+  ix.drawImage(countImg, Math.round((W - cw) / 2), cy, cw, ch);
+  [2, 6, 4, 5].forEach((k, n) => {                                         // red, yellow, green, cyan
+    const x0 = tx + tw + gap + n * sw; ix.fillStyle = css(k + 8);
+    ix.beginPath(); ix.moveTo(x0, ty + th); ix.lineTo(x0 + sw, ty + th); ix.lineTo(x0 + sw + th * 0.6, ty); ix.lineTo(x0 + th * 0.6, ty); ix.fill();
+  });
+  const hs = Math.max(1, Math.min(Math.floor(W * 0.92 / hintImg.width), Math.round(2 * DPR)));
+  const hw = hintImg.width * hs, hh = hintImg.height * hs, hx = Math.round((W - hw) / 2);
+  const hy = Math.round(H - hh - Math.max(18 * DPR, H * 0.05)), inv = Math.floor(now / 640) % 2;
+  ix.fillStyle = inv ? '#fff' : '#000'; ix.fillRect(hx - 6 * hs, hy - 4 * hs, hw + 12 * hs, hh + 8 * hs);
+  if (inv) { ix.globalCompositeOperation = 'difference'; }
+  ix.drawImage(hintImg, hx, hy, hw, hh); ix.globalCompositeOperation = 'source-over';
+  hintRect = { x: (hx - 6 * hs) / DPR, y: (hy - 4 * hs) / DPR, w: (hw + 12 * hs) / DPR, h: (hh + 8 * hs) / DPR };
+  Object.assign(skipBtn.style, { left: hintRect.x + 'px', top: hintRect.y + 'px', width: hintRect.w + 'px',
+    height: hintRect.h + 'px', bottom: 'auto', transform: 'none' });
+  ic.style.cursor = hover ? 'pointer' : 'default';
+  introRaf = requestAnimationFrame(introFrame);
+}
+const toCanvas = e => ({ x: e.clientX * DPR, y: e.clientY * DPR });
+ic.addEventListener('pointermove', e => { if (e.pointerType === 'mouse') pointer = toCanvas(e); });
+ic.addEventListener('pointerleave', () => { pointer = null; hover = null; });
+ic.addEventListener('click', e => {
+  ensureAudio();
+  const p = toCanvas(e), o = hitTest(p.x, p.y);
+  if (o) closeIntro(() => boot(o.th.g.id));
+});
+skipBtn.addEventListener('click', () => { ensureAudio(); closeIntro(); });
+window.addEventListener('resize', () => { if (introOpen) introResize(); });
+document.getElementById('gallery').textContent = `Gallery (${GAME_COUNT})`;
+document.getElementById('gallery').addEventListener('click', e => { e.target.blur(); openIntro(); });
+if (firstVisit) openIntro();
+</script>
+</body>
+</html>
