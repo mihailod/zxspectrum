@@ -213,6 +213,23 @@ resets or goes black. Both start where the menu tune is set up instead, which al
 each part had loaded; part 1 now boots from the 48K tape instead (above), while parts 2 and 3 keep their
 snapshots, which hold the objects and progress carried over from the parts before.
 
+Some snapshots record the interrupt state (on/off) or mode (IM 1/IM 2) differently from how the original game
+runs: snapshot tools often guessed the mode, and some snapshots were made from cracked copies that ran
+differently. These were checked against the original tapes from ZXDB, loaded in the emulator and compared
+wherever both run the same code, and fixed with `start` (which can also set `im`):
+
+- Interrupts on where the game had turned them off. Manic Miner turns them off at start (DI at 8400) but its
+  snapshot had them on, so the ROM's interrupt routine ran every frame and wrote its keyboard bytes into the
+  game's attribute buffer at 5C00: two flashing squares at the top left of every cavern. Galaxians was saved at
+  its level prompt after its own DI; LD SP,5C00 with interrupts on. Pyjamarama's title restart had them on
+  where the original tape has them off. All three now continue with interrupts off.
+- 54 snapshots were saved just as an interrupt was taken (PC 0038), recorded as IM 1. Cyclone, Kong Strikes
+  Back, Raid Over Moscow and Voice Chess really run in IM 2, so the ROM's handler ran instead of the game's own;
+  they now start in the game's handler, in IM 2. Match Day (its title), Piromania and The NeverEnding Story
+  parts 2 and 3 run that code with interrupts off in the original; the interrupt is undone (back to the return
+  address it pushed) and they go on with interrupts off. Bear Bovver needed both: interrupts off at its
+  prompt, IM 2 for when the game turns them on. The rest matched their tapes or have none to compare against.
+
 ## Status: phase 1 — accurate machine
 
 The emulator was written from scratch for this project in JavaScript; it is not
