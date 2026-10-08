@@ -1481,6 +1481,10 @@ const GAME_LIST = [
   {
     id: 'sportshero', name: 'Sports Hero', file: 'roms/SPORTHER.Z80',
     screen: 'roms/SPORTHER.scr',   // ZXDB loading screen
+    // recorded as IM 1, but this version only ever runs in IM 2: it sets I=28 and IM 2 at start-up (6105), taking
+    // its vector from the ROM (28FF holds 7E5C, its interrupt routine, which draws the athletes) instead of a
+    // table; in IM 1 the tracks stay empty
+    start: { pc: 0x84dc, im: 2 },
     keysHelp: `You choose the keys: two run keys (press them alternately, fast), two jump keys and a break key, for ` +
       `example ${kb('Caps')} ${kb('Space')} to run and ${kb('Symbol')} ${kb('Z')} to jump.`,
     flowHelp: 'Press any key on the loading screen. Press D and then five keys in turn: break, run, run, jump, jump ' +

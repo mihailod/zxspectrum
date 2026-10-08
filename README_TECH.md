@@ -237,6 +237,13 @@ wherever both run the same code, and fixed with `start` (which can also set `im`
   its table and goes IM 2 at start-up, with no IM 1 anywhere (its earlier "match" was a tape file that never
   loaded the game). Their handlers drive the sound, so in IM 1 both played silently; they now start in the
   game's handler, in IM 2.
+- Many games skip the 257-byte table and point I into the ROM, taking the vector from ROM bytes: I=39–3B
+  reads FF FF (vector FFFF, where the game puts a JR or JP), I=09 reads FE69, I=19 reads 5D22, I=28 reads
+  7E5C. Sports Hero sets I=28 and IM 2 at start-up and has no IM 1, but its snapshot recorded IM 1, so its
+  interrupt routine at 7E5C, which draws the athletes, never ran and the tracks stayed empty; it now runs in
+  IM 2. Every other game with ROM-vector code was played through its flow with its IM switches and
+  interrupts traced: those saved in IM 2 run through their vector, those saved in IM 1 (with I still 3F)
+  switch to IM 2 themselves, and Piromania's I=28 routine is never called (its 7E5C is data).
 
 ## Status: phase 1 — accurate machine
 
