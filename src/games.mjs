@@ -245,6 +245,10 @@ const GAME_LIST = [
     // Bug-Byte's loading screen (ZXDB, distribution allowed): FLASH swaps
     // MANIC and MINER. The snapshot itself starts after loading.
     screen: 'roms/ManicMiner.scr',
+    // The snapshot was saved with interrupts on, but the game runs with them off (DI at 8400): left on, the ROM's
+    // keyboard routine writes KSTATE into the game's attribute buffer at 5C00 every frame, showing two flashing
+    // squares at the top left of every cavern. Same place, interrupts off.
+    start: { pc: 0x9303, ei: 0 },
     // The title screen polls ENTER between notes (12 frames to start reliably,
     // measured). ENTER shares the music on/off row, so the start press also
     // turns the in-game music off, exactly as on a real Spectrum and in Fuse.
@@ -1248,6 +1252,9 @@ const GAME_LIST = [
   {
     id: 'galaxians', name: 'Galaxians', file: 'roms/GALAXIAN.Z80',   // Artic, 1982
     screen: 'roms/GALAXIAN.scr',   // ZXDB loading screen
+    // saved at the level prompt after the game's DI; LD SP,5C00 (62E1) but with interrupts on, so the ROM's
+    // interrupt routine ran on: same place, interrupts off (the game never turns them on)
+    start: { pc: 0x6314, ei: 0 },
     keysHelp: `${kb('Caps')} left, ${kb('Z')} right, ${kb('Space')} fire, ${kb('S')} stop (any key carries on), ` +
       `${kb('A')} abandon the game.`,
     flowHelp: 'Press any key on the loading screen, a level from 1 to 9, then 1 or 2 players.',
@@ -1524,8 +1531,8 @@ const GAME_LIST = [
   {
     id: 'pyjamarama', name: 'Pyjamarama', file: 'roms/PYJAMA.Z80',
     // saved 12 s into the title tune: restart at the title routine, which shows the
-    // loading screen and plays the tune from its start
-    start: { pc: 0xb2d1, sp: 0x0000, ei: 1 },
+    // loading screen and plays the tune from its start, with interrupts off as on the original tape (v1)
+    start: { pc: 0xb2d1, sp: 0x0000, ei: 0 },
     holdBoot: true,           // the tune would start straight away
     keysHelp: `${kb('O')} left, ${kb('P')} right, ${kb('M')} jump / fire.`,
     flowHelp: 'Press any key on the loading screen to hear the tune, any key for the menu, then ENTER to start ' +
