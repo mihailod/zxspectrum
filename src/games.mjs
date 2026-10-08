@@ -27,8 +27,9 @@
 //     questions before the rest of the tape loads (Art Studio's installer)
 // partOf: on the second and later parts of a game the 48K version loads in parts (each part is its own entry),
 // the id of the first part: the game is counted once, and only its first part is in the gallery
-// start: { pc, sp, ei } restarts a snapshot at the game's own entry point when
-// it was saved part-way through a tune (found by disassembly; see README).
+// start: { pc, sp, ei, im } restarts a snapshot at the game's own entry point when
+// it was saved part-way through a tune (found by disassembly; see README), or puts back the interrupt
+// state (ei) and mode (im) the original runs with where the snapshot recorded them wrongly.
 // basicLine: for a game whose title is a BASIC program, run that program from
 // this line (the ROM statement loop picks up NEWPPC; the stack is the
 // program's own, ERR_SP) instead of carrying on mid-statement.
@@ -1152,6 +1153,9 @@ const GAME_LIST = [
   },
   {
     id: 'piromania', name: 'Piromania', file: 'roms/PIROMAN.Z80',
+    // saved as an interrupt was accepted (PC 0038), but the original tape runs this with interrupts off: undo
+    // it (return address A29D from the stack) and go on with them off
+    start: { pc: 0xa29d, sp: 0xff38, ei: 0 },
     screen: 'roms/PIROMAN.scr',   // ZXDB loading screen (ZXDB: Infernal Combustion)
     keysHelp: `${kb('Z')} ${kb('C')} ${kb('B')} ${kb('M')} left, ${kb('X')} ${kb('V')} ${kb('N')} ${kb('Symbol')} right, ` +
       `${kb('Q')}–${kb('P')} up, ${kb('A')}–${kb('Enter')} down, ${kb('1')}–${kb('0')} use an object, ` +
@@ -1238,6 +1242,9 @@ const GAME_LIST = [
   },
   {
     id: 'raidovermoscow', name: 'Raid Over Moscow', file: 'roms/RAIDMOSC.Z80',
+    // saved as an interrupt was accepted (PC 0038) but recorded as IM 1; the original tape runs in IM 2 (I=FE):
+    // take that interrupt the IM 2 way, through the game's own handler (6060, just EI; RETI)
+    start: { pc: 0x6060, im: 2 },
     screen: 'roms/RAIDMOSC.scr',   // ZXDB loading screen
     keysHelp: `${kb('I')} left, ${kb('P')} right, ${kb('Q')} up, ${kb('Z')} down, ${kb('N')} fire, ${kb('H')} halt; ` +
       `${kb('Caps')} with ${kb('Space')} aborts.`,
@@ -1266,6 +1273,10 @@ const GAME_LIST = [
   },
   {
     id: 'bearbovver', name: 'Bear Bovver', file: 'roms/BEARBOV.Z80',
+    // saved as an interrupt was accepted (PC 0038), recorded as IM 1, in its PRESS TO CONTINUE loop; the original
+    // tape waits there with interrupts off, in IM 2 (I=EB, handler EAEA): undo the interrupt (return address
+    // 99BC from the stack) and go on with them off, in IM 2 for when the game turns them on
+    start: { pc: 0x99bc, sp: 0x6ff4, ei: 0, im: 2 },
     screen: 'roms/BEARBOV.scr',   // ZXDB loading screen
     keysHelp: `${kb('O')} ${kb('L')} ${kb('6')} left, ${kb('P')} ${kb('Enter')} ${kb('7')} right, ${kb('Q')}–${kb('T')} ` +
       `${kb('9')} up, ${kb('A')}–${kb('G')} ${kb('8')} down, bottom row or ${kb('0')} drop a time bomb.`,
@@ -1304,6 +1315,9 @@ const GAME_LIST = [
   },
   {
     id: 'cyclone', name: 'Cyclone', file: 'roms/CYCLONE.Z80',
+    // saved as an interrupt was accepted (PC 0038) but recorded as IM 1; the original tape runs in IM 2 (I=FF):
+    // take that interrupt the IM 2 way, through the game's own handler (F3F3, vector at FFFF)
+    start: { pc: 0xf3f3, im: 2 },
     screen: 'roms/CYCLONE.scr',   // ZXDB loading screen
     keysHelp: `${kb('1')} up, ${kb('Q')} down, ${kb('O')} left, ${kb('P')} right, ${kb('X')} forward, ${kb('M')} map, ` +
       `${kb('N')} change the view; ${kb('A')} with ${kb('G')} aborts.`,
@@ -2412,6 +2426,9 @@ const GAME_LIST = [
   },
   {
     id: 'kongstrikesback', name: 'Kong Strikes Back', file: 'roms/KONGSTRI.Z80',
+    // saved as an interrupt was accepted (PC 0038) but recorded as IM 1; the original tape runs in IM 2 (I=FD):
+    // take that interrupt the IM 2 way, through the game's own handler (FEFE)
+    start: { pc: 0xfefe, im: 2 },
     screen: 'roms/KONGSTRI.scr',   // ZXDB loading screen
     keysHelp: 'You choose the keys: R on the title asks for up, down, left, right, throw bomb, hold and sound ' +
       '(for example Q A O P M H S).',
@@ -3055,6 +3072,10 @@ const GAME_LIST = [
   },
   {
     id: 'matchday', name: 'Match Day', file: 'roms/MATCHDAY.Z80',
+    // saved as an interrupt was accepted (PC 0038), but the original tape runs this with interrupts off: undo
+    // it (return address B4FF from the stack) and go on with them off; the game turns them on itself after its
+    // title
+    start: { pc: 0xb4ff, sp: 0xbdbe, ei: 0 },
     // on its own loading screen, waiting for a key. The snapshot had player 1 on a Kempston joystick (and player 2
     // on O P A Q N): that is the start-of-game menu's "Swap Controls" put in (control records 670D/6713 and their
     // port/mask tables 671B/6727), so player 1 plays on the keys; player 2's joystick is attached idle
@@ -3378,6 +3399,9 @@ const GAME_LIST = [
   },
   {
     id: 'voicechess', name: 'Voice Chess', file: 'roms/VOICECHE.Z80',
+    // saved as an interrupt was accepted (PC 0038) but recorded as IM 1; the original tape runs in IM 2 (I=F8):
+    // take that interrupt the IM 2 way, through the game's own handler (F901, which calls the ROM's)
+    start: { pc: 0xf901, im: 2 },
     keysHelp: 'Type moves as E2 E4 and ENTER. M asks for a suggested move, O lists the moves, S stops the game.',
     flowHelp: 'Artic’s talking chess. Type P and ENTER (play), W or B and ENTER, and a level 0–6 and ENTER (0 answers ' +
       'in about 2 seconds, 2 in about 40).',
@@ -3525,6 +3549,9 @@ const GAME_LIST = [
   },
   {
     id: 'neverending2', name: 'The NeverEnding Story (part 2)', file: 'roms/NESTORY2.Z80',
+    // saved as an interrupt was accepted (PC 0038), but the original tape runs this with interrupts off: undo
+    // it (return address 856D from the stack) and go on with them off
+    start: { pc: 0x856d, sp: 0x5ff4, ei: 0 },
     partOf: 'neverending1',          // a later part: one game with neverending1 (not counted, not in the gallery)
     screen: 'roms/NESTORY.scr',   // ZXDB loading screen
     keysHelp: 'Type commands in English and press ENTER (every command needs a verb: GO NORTH, TAKE THE AURYN, ' +
@@ -3536,6 +3563,9 @@ const GAME_LIST = [
   },
   {
     id: 'neverending3', name: 'The NeverEnding Story (part 3)', file: 'roms/NESTORY3.Z80',
+    // saved as an interrupt was accepted (PC 0038), but the original tape runs this with interrupts off: undo
+    // it (return address 8576 from the stack) and go on with them off
+    start: { pc: 0x8576, sp: 0x5ff4, ei: 0 },
     partOf: 'neverending1',          // a later part: one game with neverending1 (not counted, not in the gallery)
     screen: 'roms/NESTORY.scr',   // ZXDB loading screen
     keysHelp: 'Type commands in English and press ENTER (every command needs a verb: GO NORTH, TAKE THE AURYN, ' +

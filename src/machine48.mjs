@@ -320,10 +320,10 @@ return {
   W, H: Hh, pixels, mem, runFrame, loadZ80, reset, getRegs, setRegs, showScreen, redraw,
   saveState, loadState,
   // continue a loaded snapshot at another address (a game's own entry point),
-  // optionally with a new stack pointer and interrupts enabled (ei 1) or not (0)
-  enter({ pc, sp, ei }) {
+  // optionally with a new stack pointer, interrupts enabled (ei 1) or not (0) and interrupt mode (im)
+  enter({ pc, sp, ei, im }) {
     const r = getRegs();
-    setRegs({ ...r, pc, sp: sp ?? r.sp, iff1: ei ?? r.iff1, iff2: ei ?? r.iff2, halted: 0, eiAt: -1, intChk: Infinity });
+    setRegs({ ...r, pc, sp: sp ?? r.sp, iff1: ei ?? r.iff1, iff2: ei ?? r.iff2, im: im ?? r.im, halted: 0, eiAt: -1, intChk: Infinity });
   },
   hasKempston: () => !!kempston,
   // tape: insert a .tzx/.tap image (null ejects); it plays itself when a loader runs
