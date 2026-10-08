@@ -1291,6 +1291,10 @@ const GAME_LIST = [
   {
     id: 'worldcup', name: 'World Cup', file: 'roms/WORLDCUP.Z80',   // Artic, 1983 (ZXDB: World Cup Football)
     screen: 'roms/WORLDCUP.scr',   // ZXDB loading screen
+    // saved as an interrupt was accepted (PC 0038) but recorded as IM 1; the original tape runs in IM 2 (I=80, which
+    // the game only sets together with IM 2): take that interrupt the IM 2 way, through the game's own handler
+    // (8181), which plays the sound; in IM 1 the matches are silent
+    start: { pc: 0x8181, im: 2 },
     keysHelp: `Player 1: ${kb('I')} up, ${kb('Q')} down, ${kb('A')} left, ${kb('S')} right, bottom row fire. ` +
       `Player 2: ${kb('0')} up, ${kb('O')} down, ${kb('J')} left, ${kb('K')} right. ${kb('Y')} sound, ${kb('R')} pause.`,
     flowHelp: 'Press any key on the loading screen, 1 for keyboard and 4 for the World Cup (5 to practise). Then ENTER ' +
@@ -2878,6 +2882,10 @@ const GAME_LIST = [
   },
   {
     id: 'zaxxon', name: 'Zaxxon', file: 'roms/ZAXXON.Z80',
+    // saved as an interrupt was accepted (PC 0038) but recorded as IM 1; the game sets I=D0, builds its table and
+    // goes IM 2 at start-up and has no IM 1 anywhere: take that interrupt the IM 2 way, through the game's own
+    // handler (6060, a jump to 8E99, which counts frames at FFE6); in IM 1 the counter stands still and play is silent
+    start: { pc: 0x6060, im: 2 },
     screen: 'roms/ZAXXON.scr',   // ZXDB loading screen
     keysHelp: `${kb('I')} left, ${kb('P')} right, ${kb('Q')} dive, ${kb('Z')} climb, ${kb('N')} fire, ${kb('H')} hold.`,
     flowHelp: 'Press any key on the loading screen, S to start, type your name and ENTER, then any key.',

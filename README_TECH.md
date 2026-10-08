@@ -229,6 +229,14 @@ wherever both run the same code, and fixed with `start` (which can also set `im`
   parts 2 and 3 run that code with interrupts off in the original; the interrupt is undone (back to the return
   address it pushed) and they go on with interrupts off. Bear Bovver needed both: interrupts off at its
   prompt, IM 2 for when the game turns them on. The rest matched their tapes or have none to compare against.
+- The 18 snapshots recorded as IM 1 with I other than 3F (the ROM's value; a game sets I to point at its IM 2
+  vector table) were checked for a table and for the game's own IM 2 / LD I,A code. Moon Cresta, Shockway Rider,
+  Short Circuit, Thunderbirds and A View to a Kill switch to IM 2 themselves, Full Throttle runs with
+  interrupts off, and the rest have no table. World Cup and Zaxxon were really in IM 2: World Cup only ever
+  sets I=80 together with IM 2 (and its tape runs in IM 2 from the first frame), and Zaxxon sets I=D0, builds
+  its table and goes IM 2 at start-up, with no IM 1 anywhere (its earlier "match" was a tape file that never
+  loaded the game). Their handlers drive the sound, so in IM 1 both played silently; they now start in the
+  game's handler, in IM 2.
 
 ## Status: phase 1 — accurate machine
 
