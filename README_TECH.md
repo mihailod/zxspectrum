@@ -215,6 +215,13 @@ snapshots, which hold the objects and progress carried over from the parts befor
 
 ## Status: phase 1 — accurate machine
 
+The emulator was written from scratch for this project in JavaScript; it is not
+a port of Fuse's C code or an existing JS emulator. Fuse 1.6.0 is the
+reference for behaviour: the emulator is checked against Fuse's own Z80 test
+suite and in whole-machine lockstep against a Fuse build patched to log every
+bus access (see Verification). The only things taken from Fuse are its 48K ROM
+file and its Z80 test data.
+
 The page runs the original Z80 code on a cycle-exact 48K Spectrum model:
 
 - **Z80 core** (`src/z80gen.mjs`): a table-driven generator that emits the
