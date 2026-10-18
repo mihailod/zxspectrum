@@ -280,6 +280,53 @@ node tools/build.mjs
 The ROM is taken from `/Applications/Fuse.app/Contents/Resources/48.rom`
 unless `roms/48.rom` exists or `--rom <path>` is given. Output: `ZXSpectrum.html`.
 
+## Real Spectrum with a DivMMC
+
+```bash
+node tools/divmmc.mjs <new output folder>
+node tools/divmmc-check.mjs <that folder, or the card's /GAMES/ROMS>
+```
+
+Builds the same games for a real 48K Spectrum with a DivMMC running esxDOS 0.8,
+which loads `.tap` and `.z80` but not `.tzx`, and shows only 8.3 names:
+
+- Snapshot games get a `.Z80` with the page's `start` and `pokes` fixes written
+  into it. A game with a separate loading screen also gets a launcher `.TAP`:
+  `LOAD "" SCREEN$ : PAUSE 0`, a wait until the key is let go (so it does not
+  reach the game, or BREAK a tape load), then `.snapload` of its `.Z80`.
+- Tape games whose blocks are all standard-speed and read by the ROM loader
+  become a `.TAP` (the loading screen put in front where the tape has none;
+  Formula One gets a `LOAD "" CODE` loader in front). Tapes esxDOS cannot feed,
+  turbo or Speedlock loaders or a RAM copy of the ROM loader (Fairlight, Hyper
+  Sports, Renegade, Splitting Images, iD, The Drinker), become a `.Z80` of the
+  machine at the end of the tape. That is taken where the ROM loader returns
+  to the game, or at the tape's end itself, before the game wipes its loading
+  screen. NeverEnding Story part 1 uses its part-1 snapshot, fixed like parts 2
+  and 3.
+- Layout, for `/GAMES/ROMS` on the card: everything you start is in letter
+  folders (`0-C D-H I-N O-S T-Z`, about 50–60 files each). Files only a
+  launcher or a game loads, the launchers' snapshots and Buggy Boy's courses
+  tape, are in `ZZZ`, last in the browser. The launchers name their snapshot
+  by full path, `/GAMES/ROMS/ZZZ/<name>.Z80`.
+
+The check loads every launcher in the emulator. Each one has to show its
+screen, wait for a key and reach its `.snapload` line, where the emulator
+(which has no esxDOS) stops with "Nonsense in BASIC". It also checks the
+names, that each snapshot is in `ZZZ`, and that the two tapes with something
+put in front end up like their plain tapes.
+
+Copying to the card:
+
+- esxDOS lists a folder in the order its entries were written, not sorted.
+  Write each folder fresh, in sorted order.
+- macOS adds a 4 KB `._` file next to every file it writes to the FAT card,
+  even with `cp -X`. Remove them afterwards (`dot_clean -m`, or delete the
+  `._*` files).
+
+Renegade's launcher uses the archive's loading screen, `roms/Renegade.scr`,
+because the one on screen at the end of its tape carries Speedlock's countdown
+timer.
+
 ## Verification
 
 ```bash
