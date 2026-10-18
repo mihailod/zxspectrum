@@ -320,8 +320,18 @@ Copying to the card:
 - esxDOS lists a folder in the order its entries were written, not sorted.
   Write each folder fresh, in sorted order.
 - macOS adds a 4 KB `._` file next to every file it writes to the FAT card,
-  even with `cp -X`. Remove them afterwards (`dot_clean -m`, or delete the
-  `._*` files).
+  even with `cp -X`, and esxDOS lists them all. Remove them after copying:
+
+  ```bash
+  dot_clean -m /Volumes/DS
+  ```
+
+  To stop the Finder writing `.DS_Store` files on USB and SD cards (takes
+  effect after logging out and in):
+
+  ```bash
+  defaults write com.apple.desktopservices DSDontWriteUSBStores -bool true
+  ```
 
 Renegade's launcher uses the archive's loading screen, `roms/Renegade.scr`,
 because the one on screen at the end of its tape carries Speedlock's countdown
