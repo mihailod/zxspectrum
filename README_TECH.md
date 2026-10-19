@@ -365,6 +365,43 @@ with the card's own NextZXOS and config. Each was loaded from NextBASIC with
 `LOAD`, which is what the browser does with a `.BAS`. Each showed its loading
 screen, and the game started after a key.
 
+On the Next, start a game from the browser with its `.BAS`. The games without a
+separate loading screen are plain `.Z80` files. The tape games stay `.TAP`, and
+the NextZXOS TAP loader asks for a mode (48K mode suits them).
+
+Putting the set on the Next card (`c:/games/roms`):
+
+- The NextZXOS browser, like esxDOS, lists a folder in the order its entries
+  were written. Write the set into a fresh folder, each folder and file in
+  sorted order (`LC_ALL=C sort`), then swap it in for the old `games/roms`.
+- Remove the `._` files macOS writes next to every file and folder, even with
+  `cp -X` (`dot_clean -m /Volumes/ZXNEXT`).
+- Replace `.fseventsd` in the card's root with one holding an empty `no_log`
+  file, so macOS keeps no change log there.
+- `.Spotlight-V100` is protected, so even `sudo` cannot remove it. Add the card
+  under System Settings → Spotlight → Search Privacy so it is not indexed.
+- Eject the card in the Finder before taking it out.
+
+Testing in ZEsarUX:
+
+- Homebrew's cask is disabled (not signed for Gatekeeper). Build from
+  [the source](https://github.com/chernandezba/zesarux) instead:
+  `./configure && make` in `src`. It ships a Next boot ROM and a NextZXOS SD
+  image (`tbblue.mmc`).
+- Run it as a Next with `--machine TBBlue --enable-mmc --mmc-file <image>
+  --enable-divmmc-ports`. With the bundled image's `config.ini` (`timing=8`),
+  the firmware stops at its first-boot video test and waits there unseen. Copy
+  in the real card's `machines/next/config.ini` (a set `timing`), and its
+  `nextzxos`, `sys` and `dot` to match its version.
+- `--mmc-no-persistent-writes` keeps the image unchanged. `--vo null
+  --enable-remoteprotocol` runs it headless, driven over ZRCP:
+  `send-keys-event` / `send-keys-string` to type, `get-ocr` for the text on
+  screen, `save-screen x.scr` for the ULA screen. The firmware's own screens
+  are in Layer 2, which `save-screen` does not capture.
+- ZRCP's typing and key events are sometimes dropped: hold ENTER about 0.3 s,
+  wait a moment after typing a long line, and check where the menu landed
+  before going on.
+
 ## Verification
 
 ```bash
