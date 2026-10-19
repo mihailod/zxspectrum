@@ -337,6 +337,34 @@ Renegade's launcher uses the archive's loading screen, `roms/Renegade.scr`,
 because the one on screen at the end of its tape carries Speedlock's countdown
 timer.
 
+### ZX Spectrum Next
+
+```bash
+node tools/divmmc.mjs <new output folder> --next
+```
+
+NextZXOS has no `.snapload`, so the `.TAP` launchers stop at their `.snapload`
+line. With `--next` the set is built for `c:/games/roms` on a Next card instead.
+Each launcher becomes a NextBASIC `.BAS`, which the NextZXOS browser runs
+directly, without asking for a mode:
+
+```
+10 LAYER 0: LOAD "c:/games/roms/zzz/X.SCR" SCREEN$ : PAUSE 0
+20 IF INKEY$<>"" THEN GO TO 20
+30 RUN AT 0: SPECTRUM "c:/games/roms/zzz/X.Z80"
+```
+
+The loading screen sits next to the snapshot in `ZZZ`, as a +3DOS file with a
+CODE header. `SPECTRUM` is how NextZXOS's own snapshot loader starts a
+snapshot, and `RUN AT 0` sets 3.5 MHz first, as that loader does. Everything
+else is the same as the esxDOS set. `divmmc-check.mjs` checks the `.BAS` and
+`.SCR` files byte for byte, since the emulator here has no NextBASIC.
+
+The launchers were run end to end in ZEsarUX, built from source, as a Next
+with the card's own NextZXOS and config. Each was loaded from NextBASIC with
+`LOAD`, which is what the browser does with a `.BAS`. Each showed its loading
+screen, and the game started after a key.
+
 ## Verification
 
 ```bash

@@ -1,4 +1,5 @@
-// Checks a folder made by tools/divmmc.mjs (or the card's /GAMES/ROMS): 8.3 names, every launcher shows its
+// Checks a folder made by tools/divmmc.mjs (or the card's /GAMES/ROMS), with or without --next: 8.3 names, every
+// Next launcher (.BAS) is exactly the program it should be and its screen and snapshot are in ZZZ, every launcher shows its
 // loading screen, waits for a key and reaches its .snapload line (where the emulator, which has no esxDOS, stops
 // with "Nonsense in BASIC"), naming a snapshot that is in ZZZ; and the two tapes with something put in front
 // (Ukleti Dvorac, Formula One) end up like their plain tapes.
@@ -17,7 +18,7 @@ const dirs = fs.readdirSync(D).filter(n => n !== 'ZZZ' && !n.startsWith('.') && 
 const where = {}; for (const d of dirs) for (const n of fs.readdirSync(D + d)) where[n] = d + '/';
 const names = Object.keys(where);
 console.log('folders:', dirs.map(d => `${d} ${fs.readdirSync(D + d).length}`).join(', '), '| loose files in roms:', fs.readdirSync(D).filter(n => !fs.statSync(D + n).isDirectory()).length);
-const bad83 = [...names, ...sub].filter(n => !/^[A-Z0-9_\-!#$%&'()@^{}~]{1,8}\.(Z80|TAP)$/.test(n));
+const bad83 = [...names, ...sub].filter(n => !/^[A-Z0-9_\-!#$%&'()@^{}~]{1,8}\.(Z80|TAP|BAS|SCR)$/.test(n));
 console.log('names not 8.3:', bad83.length ? bad83 : 'none');
 // every launcher: runs LOAD "", shows the right screen, waits, then reaches the .snapload line naming an existing file
 let ok = 0, fails = [];
@@ -35,8 +36,23 @@ for (const n of names.filter(n => n.endsWith('.TAP'))) {
   const err = zx.mem[0x5c3a], lineNo = zx.mem[0x5c45] | zx.mem[0x5c46] << 8;
   if (sd || !waiting || err !== 11 || lineNo !== 30) fails.push(`${n}: screen diff ${sd}, waiting ${waiting}, err ${err}, line ${lineNo}`); else ok++;
 }
-const zOrphans = sub.filter(z => z.endsWith('.Z80') && !names.includes(z.replace('.Z80', '.TAP')));
-console.log('in roms:', names.length, '| in ZZZ:', sub.length, '| ZZZ snapshots without a launcher:', zOrphans.length ? zOrphans : 'none', '| roms snapshots that have a launcher:', names.filter(n => n.endsWith('.Z80') && names.includes(n.replace('.Z80', '.TAP'))).length);
+// Next launchers (.BAS, made with --next): the emulator has no NextBASIC, so check them as files: +3DOS headers,
+// the three lines exactly, and that the screen and snapshot they name are in ZZZ
+const p3 = (b, type) => { const h = b.subarray(0, 128); let sum = 0; for (let i = 0; i < 127; i++) sum += h[i];
+  return h.toString('latin1', 0, 8) === 'PLUS3DOS' && sum % 256 === h[127] && h.readUInt32LE(11) === b.length && h[15] === type && h.readUInt16LE(16) === b.length - 128; };
+let nextOk = 0;
+for (const n of names.filter(n => n.endsWith('.BAS'))) {
+  const b = fs.readFileSync(D + where[n] + n), stem = n.slice(0, -4), dir = 'c:/games/roms/zzz/';
+  const want = (await import('./divmmc-lib.mjs')).nextLauncherBas(dir + stem + '.SCR', dir + stem + '.Z80');
+  const scr = sub.includes(stem + '.SCR') && fs.readFileSync(D + 'ZZZ/' + stem + '.SCR');
+  const bad = [!p3(b, 0) && 'header', b.readUInt16LE(18) !== 10 && 'autostart', Buffer.compare(b, want) && 'program',
+    !scr && 'no .SCR', scr && !(p3(scr, 3) && scr.length === 128 + 6912 && scr.readUInt16LE(18) === 16384) && '.SCR header',
+    !sub.includes(stem + '.Z80') && 'no .Z80'].filter(Boolean);
+  if (bad.length) fails.push(`${n}: ${bad.join(', ')}`); else nextOk++;
+}
+if (nextOk) console.log('Next launchers OK:', nextOk);
+const zOrphans = sub.filter(z => z.endsWith('.Z80') && !names.includes(z.replace('.Z80', '.TAP')) && !names.includes(z.replace('.Z80', '.BAS')));
+console.log('in roms:', names.length, '| in ZZZ:', sub.length, '| ZZZ snapshots without a launcher:', zOrphans.length ? zOrphans : 'none', '| roms snapshots that have a launcher:', names.filter(n => n.endsWith('.Z80') && (names.includes(n.replace('.Z80', '.TAP')) || names.includes(n.replace('.Z80', '.BAS')))).length);
 console.log('launchers OK:', ok, 'failures:', fails.length ? fails : 'none');
 // the two tapes with something in front: same machine at the end as the plain tape (screen tape: press a key at the pause)
 const plain = (g, buf, cmd) => { const zx = createMachine(); const fr = loadTapeToEnd(zx, new Uint8Array(buf), cmd, undefined, g.stopAt ?? null, g.tapeKeys || []); return { zx, fr }; };

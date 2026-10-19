@@ -1,5 +1,6 @@
-// Helpers for tools/divmmc.mjs: a .z80 writer (v1, compressed) and the DivMMC launcher .tap
-// (BASIC: LOAD "" SCREEN$ : PAUSE 0 / wait for the key to be let go / .snapload <the snapshot>).
+// Helpers for tools/divmmc.mjs: a .z80 writer (v1, compressed), the DivMMC launcher .tap
+// (BASIC: LOAD "" SCREEN$ : PAUSE 0 / wait for the key to be let go / .snapload <the snapshot>), and for the
+// ZX Spectrum Next the launcher .bas and its loading screen as +3DOS files.
 export function compress(ram) {
   const o = []; let i = 0;
   while (i < ram.length) {
@@ -41,3 +42,26 @@ export function launcherTap(stem, scr, path) {
     tapBlock(0x00, header(3, stem, 6912, 16384, 32768)), tapBlock(0xff, [...scr]),
   ]);
 }
+
+// +3DOS file: 128-byte header ("PLUS3DOS", soft EOF, issue 1, version 0, file size, the +3 BASIC header, checksum)
+export function plus3dos(type, data, p1, p2) {
+  const h = new Uint8Array(128), size = 128 + data.length;
+  h.set([...'PLUS3DOS'].map(ch => ch.charCodeAt(0))); h[8] = 0x1a; h[9] = 1; h[10] = 0;
+  h.set([size & 255, size >> 8 & 255, size >> 16 & 255, size >>> 24], 11);
+  h.set([type, data.length & 255, data.length >> 8, p1 & 255, p1 >> 8, p2 & 255, p2 >> 8], 15);
+  let sum = 0; for (let i = 0; i < 127; i++) sum += h[i]; h[127] = sum & 255;
+  return Buffer.concat([Buffer.from(h), Buffer.from(data)]);
+}
+// Next launcher, run by the NextZXOS browser in NextBASIC (screen and snapshot named by full path, e.g. c:/games/roms/zzz/x.z80):
+// 10 LAYER 0: LOAD scr SCREEN$ : PAUSE 0 / 20 IF INKEY$<>"" THEN GO TO 20 / 30 RUN AT 0: SPECTRUM z80
+// (LAYER $9c and SPECTRUM $a3 are NextBASIC/128K tokens; RUN AT 0 is 3.5MHz, as NextZXOS's own snapshot loader sets)
+export function nextLauncherBas(scrPath, z80Path) {
+  const zero = [0x30, 0x0e, 0, 0, 0, 0, 0];
+  const prog = [
+    ...line(10, [0x9c, ...zero, 0x3a, 0xef, 0x22, ...asc(scrPath), 0x22, 0xaa, 0x3a, 0xf2, ...zero, 0x0d]),
+    ...WAIT_RELEASE,
+    ...line(30, [0xf7, 0xac, ...zero, 0x3a, 0xa3, 0x22, ...asc(z80Path), 0x22, 0x0d]),
+  ];
+  return plus3dos(0, prog, 10, prog.length);
+}
+export const nextScreen = scr => plus3dos(3, scr, 16384, 32768);
