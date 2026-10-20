@@ -444,6 +444,68 @@ Testing in ZEsarUX:
 - ZRCP's typing and key events are sometimes dropped: hold ENTER about 0.3 s,
   wait a moment after typing a long line, and check where the menu landed
   before going on.
+- ZEsarUX's breakpoints and CPU history need its CPU-step mode, which is not
+  available headless. Its `cpu-transaction-log` (with `autorotate`) works and
+  logs every instruction with the registers and MMU. Start it once the program
+  is running: it stops when NextZXOS sets the machine up for a snapshot.
+- `get-paging-state` reports paging as locked (`PDI`) even right after a
+  128K boots, so it is not a reliable sign of a lock.
+
+#### Jet Set Willy II 128K on the Next
+
+Omega Software's 1997 "Jet Set Willy II, 128K version, training and pack", with
+Rob Hubbard's music, is a tape (`JSW128Hubbard.tap`) that will not run on the
+Next. It is not part of the set. It was turned into a launcher and snapshots
+for the Next card's `stuff` folder. The files are kept in the git-ignored
+`roms/` folder:
+
+| File | What it is |
+|---|---|
+| `JSW2_128.BAS` | The launcher |
+| `JSW2_128.SCR` | The loading screen |
+| `JSW2_128.Z80` | The game, as a 128K snapshot |
+| `JSW2_TRN.Z80` | The same with the trainer |
+
+Why the tape does not run on the Next:
+
+- The BASIC loader needs 48K BASIC, but the game needs 128K paging, so it is
+  meant for "USR 0" mode. Line 2's `POKE 23739,111` points the screen
+  channel's output at 096F, a `RET` in every 48K BASIC ROM. Under 128K BASIC
+  that same channel entry is a ROM-switching stub in the printer buffer, so in
+  the TAP loader's 128K mode the next PRINT crashes. On emulated 128K, +2 and
+  +2A/+3 machines the tape crashes right after loading.
+- In USR0 mode (`LOAD ""` typed at the © 1982 screen) the music plays on a black
+  screen. The music interrupt pages bank 4 in with `OUT (FD),A`, A=54h (port
+  54FD), and back with the saved value at 8BE0. That value is 0 for the first
+  frames, until the main code stores its own, so the write goes to port 00FD.
+- A 128K decodes its paging port from A15 and A1 only, so 00FD still pages bank 0
+  back. The Next decodes it like a +2A/+3, with A14 as well, and ignores the
+  write. Bank 4 stays over the game's code, and its next `CALL FE93` runs into
+  empty memory. From a snapshot that ends in a reset.
+
+How the snapshots were made:
+
+- The tape was run in our emulator with 128K paging added: 8 RAM banks swapped
+  at C000 on writes to a port with A15 and A1 low, under the 48K ROM. That is
+  USR 0 mode, and there it runs.
+- The machine was stopped where BASIC enters the game (`RANDOMIZE USR 25000`,
+  61A8), then run 50 frames on, through its relocation and unpacking but
+  before the music's first paging write.
+- 8BE0 was then set to 50h (bank 0, ROM 1), which the game itself stores
+  moments later.
+- It was saved as a v3 128K `.z80` with all eight banks and 7FFD. A second run
+  pressed T at the prompt, so the loader's `POKE 23499,3` ran: 5BCB is the
+  offset of a `JR` in the game's unpacking routine.
+- The launcher (`LOAD … SCREEN$ : PAUSE 0`, T for the trainer, then
+  `SPECTRUM`) shows the prompt screen saved at the same run's `PAUSE 0`.
+
+Testing:
+
+- On an emulated 128K and on the emulated Next with the card's NextZXOS, the
+  title runs from the start of its scroller, ENTER starts the game in The
+  Bathroom, and paging switches between banks 4 and 0. The unpatched entry
+  snapshot reset the emulated Next exactly as described above.
+- On the real Next the launcher and both snapshots work, music included.
 
 ## Verification
 
