@@ -489,15 +489,27 @@ How the snapshots were made:
   at C000 on writes to a port with A15 and A1 low, under the 48K ROM. That is
   USR 0 mode, and there it runs.
 - The machine was stopped where BASIC enters the game (`RANDOMIZE USR 25000`,
-  61A8), then run 50 frames on, through its relocation and unpacking but
-  before the music's first paging write.
+  61A8), then run on to 8C01. That is past its relocation, unpacking and
+  trainer check, where it starts the game and its music, and before the
+  music's first paging write.
 - 8BE0 was then set to 50h (bank 0, ROM 1), which the game itself stores
   moments later.
 - It was saved as a v3 128K `.z80` with all eight banks and 7FFD. A second run
-  pressed T at the prompt, so the loader's `POKE 23499,3` ran: 5BCB is the
-  offset of a `JR` in the game's unpacking routine.
+  pressed T at the prompt, so the loader's `POKE 23499,3` ran, for
+  `JSW2_TRN.Z80`.
+- The trainer check runs before 8C01 and is fixed up in the normal snapshot.
+  The check tests 5BCB for 0, but 5BCB is also the offset of a `JR` in the
+  game's unpacking routine, so it is never 0. The check puts a `RET` (C9) at
+  79F8 for infinite lives either way, with or without the POKE. In the normal
+  snapshot 79F8 gets its original 3D back. The two snapshots differ in that
+  one byte.
+- The first snapshots were taken 50 frames after 61A8 rather than at 8C01, so
+  both had the trainer, and the music started a little late.
 - The launcher (`LOAD … SCREEN$ : PAUSE 0`, T for the trainer, then
   `SPECTRUM`) shows the prompt screen saved at the same run's `PAUSE 0`.
+- The two snapshots are ordinary 128K `.z80` files, so they also run in other
+  emulators. A single snapshot that sets 79F8 itself would need the launcher to
+  pass the choice through a Next register (`$7F`), and would then be Next-only.
 
 Testing:
 
@@ -505,7 +517,10 @@ Testing:
   title runs from the start of its scroller, ENTER starts the game in The
   Bathroom, and paging switches between banks 4 and 0. The unpatched entry
   snapshot reset the emulated Next exactly as described above.
-- On the real Next the launcher and both snapshots work, music included.
+- In our emulator the normal snapshot lost a life on each of 7 deaths, and the
+  trainer still had all 7 lives after 56 deaths.
+- On the real Next the launcher and the first snapshots worked, music
+  included. The current snapshots run in Fuse's 128K.
 
 ## Verification
 
