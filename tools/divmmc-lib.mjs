@@ -65,3 +65,24 @@ export function nextLauncherBas(scrPath, z80Path) {
   return plus3dos(0, prog, 10, prog.length);
 }
 export const nextScreen = scr => plus3dos(3, scr, 16384, 32768);
+
+// For the Next: games that wait on the floating bus (IN A,(FF) until a screen byte comes by) hang on a Next that
+// reads FF there. These routines read the Next's raster line instead (nextreg $1E/$1F via ports 243B/253B; line 0
+// is the first pixel row), assembled at base. Returns the bytes and the entry points.
+export function nextRasterRoutines(base, lines = null) {
+  const lo = a => a & 255, hi = a => a >> 8;
+  const getLine = base, inDisplay = base + 22, lineIn = base + 36;
+  const code = [
+    // getLine: A = line bits 0-7, carry = line bit 8; keeps BC, DE, HL
+    0xc5, 0x01, 0x3b, 0x24, 0x3e, 0x1e, 0xed, 0x79, 0x04, 0xed, 0x78, 0x05, 0x1f,
+    0x3e, 0x1f, 0xed, 0x79, 0x04, 0xed, 0x78, 0xc1, 0xc9,
+    // inDisplay: NZ while the beam is in the picture (lines 0-191), Z in the border
+    0xcd, lo(getLine), hi(getLine), 0x38, 0x07, 0xfe, 0xc0, 0x30, 0x03, 0xf6, 0x01, 0xc9, 0xaf, 0xc9,
+  ];
+  // lineIn: Z while the beam is on lines from..to-1 (to <= 256), NZ elsewhere. A window, not one line: a polling pass
+  // can take longer than a line (224 T-states), more so in contended memory, and step over it
+  if (lines !== null)
+    code.push(0xcd, lo(getLine), hi(getLine), 0x38, 0x0a, 0xfe, lines[0], 0x38, 0x06, 0xfe, lines[1] & 255, 0x30, 0x02,
+      0xaf, 0xc9, 0xf6, 0x01, 0xc9);
+  return { code, getLine, inDisplay, lineIn };
+}

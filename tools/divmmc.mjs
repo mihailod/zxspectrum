@@ -10,6 +10,7 @@
 // macOS adds. Check the result with tools/divmmc-check.mjs.
 // With --next, the same set for a ZX Spectrum Next (NextZXOS has no .snapload): each launcher is a NextBASIC .BAS
 // instead, which the browser runs directly, and its loading screen goes in ZZZ as a +3DOS .SCR; for c:/games/roms.
+// Games that wait on the floating bus, which the Next reads as FF, wait on its raster line instead (NEXT_PATCHES).
 // usage: node tools/divmmc.mjs <new output folder> [--next] [--rom path/to/48.rom]
 import fs from 'node:fs';
 import path from 'node:path';
@@ -18,7 +19,7 @@ import { machineSource } from '../src/machine48.mjs';
 import { TAPE_SRC } from '../src/tape.mjs';
 import { loadTapeToEnd } from '../src/tapeboot.mjs';
 import { GAMES } from '../src/games.mjs';
-import { writeZ80, launcherTap, WAIT_RELEASE, nextLauncherBas, nextScreen } from './divmmc-lib.mjs';
+import { writeZ80, launcherTap, WAIT_RELEASE, nextLauncherBas, nextScreen, nextRasterRoutines } from './divmmc-lib.mjs';
 
 const R = path.join(path.dirname(fileURLToPath(import.meta.url)), '..') + '/';
 if (!process.argv[2] || process.argv[2].startsWith('--')) { console.error('usage: node tools/divmmc.mjs <new output folder> [--next] [--rom path/to/48.rom]'); process.exit(1); }
@@ -49,6 +50,32 @@ const stemOf = g => RENAME[g.id] || (g.file || g.tape).replace('roms/', '').repl
 // NeverEnding Story part 1: the tape's own part-1 loader is a RAM copy of the ROM's, so use the part-1 snapshot,
 // saved like parts 2 and 3 as an interrupt was taken (return address 8586 in the same engine loop): same fix as theirs
 const NES1 = { file: 'roms/NESTORY1.Z80', start: { pc: 0x8586, sp: 0x5ff4, ei: 0 }, screen: 'roms/NESTORY.scr' };
+// --next only: the floating-bus waits that hang on the user's Next (port FF reads FF there), replaced by waits on the
+// Next's raster line. Each: where the routines go (memory the game never touches: zeros, no references to it, untouched
+// over long play), the lines a wait-for-a-byte loop exited at with a real floating bus, and the loops, checked byte for byte.
+const B = (...x) => x;
+const NEXT_PATCHES = {
+  shortcircuit1: { base: 0xc410, lines: null, loops: [
+    // 883B: LD A,28 : IN A,(FF) : INC A : JR Z,883B : RET (waits for the picture to start) -> CALL inDisplay : JR Z : RET
+    { at: 0x883b, was: B(0x3e, 0x28, 0xdb, 0xff, 0x3c, 0x28, 0xf9, 0xc9), now: r => B(0xcd, r.inDisplay & 255, r.inDisplay >> 8, 0x28, 0xfb, 0xc9, 0, 0) }] },
+  shortcircuit2: { base: 0x5b80, lines: [0, 8], loops: [
+    // 8EA7 (when Number 5 dies): ... IN A,(FF) : CP 60 : JR NZ (exited at line 0) -> CALL lineIn 0-7 : JR NZ : LD A,60
+    { at: 0x8ea7, was: B(0x3e, 0x28, 0xdb, 0xff, 0xfe, 0x60, 0x20, 0xf8), now: r => B(0xcd, r.lineIn & 255, r.lineIn >> 8, 0x20, 0xfb, 0x3e, 0x60, 0) }] },
+  topgun: { base: 0x5d40, lines: [176, 192], loops: [
+    // 6812 (paces the game): IN A,(FF) : CP 42 : JR NZ (exited at lines 176-181) -> CALL lineIn 176-191 : JR NZ : LD A,42
+    { at: 0x6812, was: B(0x3e, 0x28, 0xdb, 0xff, 0xfe, 0x42, 0x20, 0xf8), now: r => B(0xcd, r.lineIn & 255, r.lineIn >> 8, 0x20, 0xfb, 0x3e, 0x42, 0) },
+    // DB60 (a sound played until the picture starts): IN A,(FF) : INC A : JR Z,DB58 -> CALL inDisplay : JR Z,DB58
+    { at: 0xdb60, was: B(0x3e, 0x28, 0xdb, 0xff, 0x3c, 0x28, 0xf1), now: r => B(0xcd, r.inDisplay & 255, r.inDisplay >> 8, 0x28, 0xf3, 0, 0) }] },
+};
+function nextPatch(g, zx) {
+  const p = NEXT && NEXT_PATCHES[g.id]; if (!p) return '';
+  const r = nextRasterRoutines(p.base, p.lines);
+  for (let i = 0; i < r.code.length + 8; i++) if (zx.mem[p.base + i] !== 0) throw new Error(`${g.id}: routine area ${p.base.toString(16)} is not free`);
+  for (const l of p.loops) for (let i = 0; i < l.was.length; i++) if (zx.mem[l.at + i] !== l.was[i]) throw new Error(`${g.id}: unexpected code at ${l.at.toString(16)}`);
+  zx.mem.set(r.code, p.base);
+  for (const l of p.loops) { const now = l.now(r); if (now.length !== l.was.length) throw new Error('patch length'); zx.mem.set(now, l.at); }
+  return `, floating-bus waits at ${p.loops.map(l => l.at.toString(16)).join(' ')} on the raster line (routines at ${p.base.toString(16)})`;
+}
 
 function tzxToTap(d) {
   if (String.fromCharCode(...d.slice(0, 7)) !== 'ZXTape!') return Buffer.from(d);           // already a .tap
@@ -100,6 +127,7 @@ function launcher(stem, scr, note) {
 function snapshotGame(g, stem, label) {
   const zx = mk(); zx.loadZ80(read(g.file));
   if (g.start) zx.enter(g.start); for (const a in g.pokes || {}) zx.mem[a] = g.pokes[a];
+  label += nextPatch(g, zx);
   const z = writeZ80(zx); const back = mk(); back.loadZ80(new Uint8Array(z));
   let d = 0; for (let a = 0x4000; a < 0x10000; a++) if (back.mem[a] !== zx.mem[a]) d++;
   const ra = zx.getRegs(), rb = back.getRegs(); const rd = ['a','f','b','c','d','e','h','l','a_','f_','b_','c_','d_','e_','h_','l_','ix','iy','sp','pc','i','r','iff1','iff2','im'].filter(k => ra[k] !== rb[k]);

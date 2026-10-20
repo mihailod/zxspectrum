@@ -365,6 +365,49 @@ with the card's own NextZXOS and config. Each was loaded from NextBASIC with
 `LOAD`, which is what the browser does with a `.BAS`. Each showed its loading
 screen, and the game started after a key.
 
+Three games hang on a real Next because they wait on the floating bus. Each
+reads port FF (`LD A,28h : IN A,(FFh)`) until a screen byte comes by, and the
+Next reads FF there:
+
+- Short Circuit hangs at the start of the game.
+- Top Gun hangs at the start of the game.
+- Short Circuit 2 hangs when Number 5 dies.
+
+This happens even when the `.Z80` is started from the browser. Setting `timex=0`
+in `config.ini` did not change it. ZEsarUX gives the floating bus there, so it
+does not show the hang.
+
+With `--next`, those waits read the Next's raster line instead: nextreg
+`$1E`/`$1F` through ports 243B/253B, where line 0 is the first pixel row
+(`NEXT_PATCHES`):
+
+- **Short Circuit, 883B:** wait for the picture area (lines 0–191). The original
+  always exited at line 0.
+- **Short Circuit 2, 8EA7:** wait for lines 0–7. The original exited at line 0.
+- **Top Gun, 6812:** wait for lines 176–191. The original exited at lines
+  176–181, and this wait paces the menu and start.
+- **Top Gun, DB60:** a sound loop played until the picture area starts.
+
+Notes on the routine:
+
+- It waits for a range of lines, not one line. A polling pass in contended
+  memory takes about 260 T-states, longer than a 224 T-state line, so a test
+  for one exact line can step over it and wait forever.
+- The routine sits in memory each game never touches: zeros, nothing refers to
+  them, and they are untouched over long play. The builder checks that area and
+  the original loop bytes before patching. The esxDOS set is not patched, since
+  a real 48K has the floating bus.
+
+How the patches were checked:
+
+- Our emulator played the games with port FF forced to FF and ports 243B/253B
+  answering as the Next's registers. The originals hang where the Next does.
+  The patched games play like the originals on a 48K. Top Gun's start-up waits
+  matched (174 in the first 1000 frames), and Short Circuit 2 ran through its
+  death to GAME OVER.
+- In ZEsarUX, the patched games start and run.
+- On the real Next, all three work.
+
 On the Next, start a game from the browser with its `.BAS`. The games without a
 separate loading screen are plain `.Z80` files. The tape games stay `.TAP`, and
 the NextZXOS TAP loader asks for a mode (48K mode suits them).
