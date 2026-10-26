@@ -301,8 +301,16 @@ which loads `.tap` and `.z80` but not `.tzx`, and shows only 8.3 names:
   Sports, Renegade, Splitting Images, iD, The Drinker), become a `.Z80` of the
   machine at the end of the tape. That is taken where the ROM loader returns
   to the game, or at the tape's end itself, before the game wipes its loading
-  screen. NeverEnding Story part 1 uses its part-1 snapshot, fixed like parts 2
-  and 3.
+  screen. Fairlight's and Hyper Sports' RAM loaders have not yet read the
+  tape's last edge there, and a `.Z80` cannot hold the tape level. In our
+  emulator the Issue 3 EAR feedback from their own border writes supplies the
+  edge, but on a real Next the EAR bit stays put. Fairlight then shows
+  `ERROR: REWIND & RELOAD` and resets, and Hyper Sports runs Speedlock's memory
+  wipe. These two snapshots are therefore taken a frame later, where their
+  loaders are done (`LOADER_DONE`: Fairlight DCB2, Hyper Sports FEDD). They
+  reach the game entry with the same RAM and registers, and they now run the
+  same with the EAR bit held high or low. NeverEnding Story part 1 uses its
+  part-1 snapshot, fixed like parts 2 and 3.
 - Layout, for `/GAMES/ROMS` on the card: everything you start is in letter
   folders (`0-C D-H I-N O-S T-Z`, about 50–60 files each). Files only a
   launcher or a game loads, the launchers' snapshots and Buggy Boy's courses

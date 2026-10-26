@@ -46,6 +46,11 @@ const RENAME = { pinball3d: 'PINBAL3D', drinker: 'DRINKER', fairlight: 'FAIRLGHT
 // tape-end snapshots that get a launcher: Hyper Sports with the loading screen as it is at the tape's end (intact),
 // Renegade with the archive's (World of Spectrum) loading screen, as the one on screen carries Speedlock's countdown timer
 const TAPE_END_SCREENS = { hypersports: 'as on screen', renegade: 'roms/Renegade.scr' };
+// RAM loaders that, at the tape's end, have yet to read its last edge: a .Z80 cannot hold the tape's level, so with no
+// tape and no Issue 3 EAR feedback (the Next) they time out (Fairlight: ERROR: REWIND & RELOAD, then RST 0; Hyper
+// Sports: Speedlock's memory wipe). Run on to where the loader is done: Fairlight's return to its checksum test, Hyper
+// Sports' loader exit (pushed at FD50). Checked: the same RAM and registers at the game entry (C47C, 9834) either way.
+const LOADER_DONE = { fairlight: 0xdcb2, hypersports: 0xfedd };
 const stemOf = g => RENAME[g.id] || (g.file || g.tape).replace('roms/', '').replace(/\.[^.]+$/, '').toUpperCase();
 // NeverEnding Story part 1: the tape's own part-1 loader is a RAM copy of the ROM's, so use the part-1 snapshot,
 // saved like parts 2 and 3 as an interrupt was taken (return address 8586 in the same engine loop): same fix as theirs
@@ -151,6 +156,8 @@ for (const g of GAMES) {
     while (k < 8 && w(sp + 2 * k) !== 0x053f) k++;
     if (k < 8) { const ret = w(sp + 2 * k + 2); zx.setBreakAt(ret); let n = 0; while (n++ < 50) { zx.runFrame(); if (zx.brokeAtBreak()) break; }
       zx.setBreakAt(null); if (zx.getRegs().pc !== ret) throw new Error(g.id + ': the loader did not return'); at = `, stopped where the ROM loader returns (${ret.toString(16)})`; }
+    else if (LOADER_DONE[g.id]) { const done = LOADER_DONE[g.id]; zx.setBreakAt(done); let n = 0; while (n++ < 50) { zx.runFrame(); if (zx.brokeAtBreak()) break; }
+      zx.setBreakAt(null); if (zx.getRegs().pc !== done) throw new Error(g.id + ': the loader did not finish'); at = `, stopped where its loader is done (${done.toString(16)})`; }
     // hold the loading screen with a launcher; Renegade's on screen carries Speedlock's countdown timer, so the clean one
     // goes in (checked: nothing outside the screen changes over 1500 frames, and the game wipes the screen itself)
     const clean = TAPE_END_SCREENS[g.id];
